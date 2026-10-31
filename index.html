@@ -313,6 +313,10 @@ select.inp{appearance:none}
 .lm .vw-img{background:#fff}
 .bsrow .bsv{color:var(--accent);margin-left:6px}.bsctl{display:flex;align-items:center;gap:8px;margin-top:8px}.bsctl input[type=range]{flex:1;height:32px;accent-color:var(--accent)}
 .bspre{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.stline{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}.sti{font-size:12.5px;padding:4px 9px;border-radius:99px;background:var(--card2);border:1px solid var(--line2);color:var(--sub)}
+.sti.good{border-color:#166534;color:#86efac}.sti.warn{border-color:#a16207;color:#fde047}.sti.bad{border-color:#b91c1c;color:#fca5a5;background:#2a0e0e}
+.rvsum{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}.rvsum .chip{text-decoration:none;color:var(--text)}
+.rvhead{margin:14px 2px 6px;padding:8px 10px;border-left:4px solid var(--rev);background:var(--rev-bg);border-radius:8px}
 .lm-mode{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin:0 0 6px;padding:3px;background:var(--card);border:1px solid var(--line2);border-radius:12px}
 .lm-mode button{border:0;border-radius:9px;padding:9px 4px;font-weight:800;font-size:14px;background:transparent;color:var(--sub)}
 .lm-mode button.on{background:var(--accent);color:#001018}
@@ -3686,7 +3690,7 @@ window.PC_MODEL_CELL={"G": 20, "B": 16, "K": 4, "classes": 11, "layers": [{"in":
    =================================================================== */
 'use strict';
 const E = window.PCEngine, V = window.PCVision, BC = window.PCBarcode, F = window.PCFile;
-const APP_VER = '1.0.24';
+const APP_VER = '1.0.25';
 const MODEL = window.PC_MODEL ? V.loadModel(window.PC_MODEL) : null;
 const MODEL_CELL = window.PC_MODEL_CELL ? V.loadModel(window.PC_MODEL_CELL) : null; // 13칸 읽기 전용(붙은 숫자 칸) — tools/train_cell.py
 
@@ -3885,17 +3889,30 @@ const DB = {
 };
 
 /* 저장 실패(공간 부족 등)를 사용자에게 알리는 안전 저장 */
-async function persist(ops) {
+async function persist(ops, quiet) {
   try { await DB.write(ops); return true; } catch (e) {
     const q = e && (e.name === 'QuotaExceededError' || /quota/i.test(e.message || ''));
-    toast(q ? '저장 공간이 부족합니다. [과거자료 → 백업] 후 오래된 사진을 정리해 주세요.' : '저장 실패: ' + (e && e.message ? e.message : e), 'err', 6000);
-    S.saveError = true;
+    S.saveError = { at: Date.now(), quota: !!q, msg: (e && e.message) || String(e) };
+    if (!quiet) toast(q ? '⚠ 저장 공간이 부족해 저장하지 못했습니다 — 이 처리는 반영되지 않았습니다. [과거자료 → 백업] 후 오래된 사진을 정리해 주세요.' : '⚠ 저장 실패 — 이 처리는 반영되지 않았습니다(화면을 저장 전으로 되돌림). 다시 해 주세요.', 'err', 7000);
     return false;
   }
 }
+/* 1.0.25 저장 안정성: 기기 저장이 성공해야 처리 확정. 실패하면 화면 자료를 저장된 상태로 되돌리고 SaveError 를 던져
+ * 뒤따르는 성공 알림·진동·큰 창·마감 완료가 실행되지 않게 함 */
+class SaveError extends Error { constructor(m) { super(m || '저장 실패'); this.name = 'SaveError'; } }
+async function rollbackMem() {
+  try {
+    if (S.day) { const d = await DB.get('days', S.day.date); if (d) await readDayInto(d); }
+    recompute();
+    if (S.day) await loadPastPending();
+  } catch (e) { /* 읽기도 안 되면 그대로 */ }
+  try { FB.go('err'); } catch (e) { /* */ }
+  if (typeof render === 'function') try { render(); } catch (e) { /* */ }
+}
+async function mustPersist(ops) { if (!(await persist(ops))) { await rollbackMem(); throw new SaveError(); } return true; }
 
 /* ---------------------------------------------------------------- 상태 */
-const DEF_SET = { bigDetail: true, bigSec: 0, earlyCarry: false, vibrate: true, sound: true, cont: true, sameIgnoreMs: 1800, ocrAuto: true, autoExtra: false, photoSave: true, photoMax: 1280, listMax: 2400, nativeBarcode: true, keepAwake: true, theme: 'dark', minDigits: 3, autoArea: false, bigResult: true, failVoice: true, extraLater: true, voiceBtn: true, voiceAuto: false, voiceCont: true, voiceIdle: 60, voiceFab: true, voiceConfirm2: false, voiceTts: true, voiceHw: true, kbLift: true, rowTap: 'check' };
+const DEF_SET = { bigDetail: true, bigSec: 0, earlyCarry: false, lateCarry: false, vibrate: true, sound: true, cont: true, sameIgnoreMs: 1800, ocrAuto: true, autoExtra: false, photoSave: true, photoMax: 1280, listMax: 2400, nativeBarcode: true, keepAwake: true, theme: 'dark', minDigits: 3, autoArea: false, bigResult: true, failVoice: true, extraLater: true, voiceBtn: true, voiceAuto: false, voiceCont: true, voiceIdle: 60, voiceFab: true, voiceConfirm2: false, voiceTts: true, voiceHw: true, kbLift: true, rowTap: 'check' };
 const S = {
   tab: 'home', day: null, items: [], scans: [], events: [], docs: [], idx: E.index([]), st: E.stats([], []),
   undo: [], settings: Object.assign({}, DEF_SET), filter: 'base', query: '', sort: 'seq', draft: null,
@@ -3912,6 +3929,7 @@ function recompute() {
 async function loadSettings() {
   const m = await DB.get('meta', 'settings').catch(() => null);
   if (m && m.v) Object.assign(S.settings, m.v);
+  const lb = await DB.get('meta', 'lastBackup').catch(() => null); S.lastBackup = lb && lb.v ? lb.v : null;
 }
 async function saveSettings() { await persist([{ store: 'meta', value: { k: 'settings', v: S.settings } }]); }
 /* 송장번호 자릿수: 앞이 기본, 뒤는 추가 허용 (예: "13,12,10") */
@@ -3938,7 +3956,7 @@ async function ensureDay(date) {
   let d = await DB.get('days', date);
   if (!d) {
     d = { date, status: 'OPEN', createdAt: Date.now(), closedAt: null, expected: null, listPhotos: 0, parcelPhotos: 0, note: '' };
-    await persist([{ store: 'days', value: d }]);
+    if (!(await persist([{ store: 'days', value: d }]))) throw new SaveError('업무일을 저장하지 못했습니다');
   }
   return d;
 }
@@ -3990,7 +4008,8 @@ async function loadPastPending() {
       const its = await DB.byDay('items', d);
       its.forEach((it) => {
         if (it.deleted) return;
-        if (it.kind === 'BASE' && it.status === 'PENDING' && !it.lateAt) S.pastPending.set(it.regNo, { day: d, id: it.id, seq: it.seq, name: it.name });
+        // 1.0.25 업무 방침: 미도착은 그날 결과로 마감 — 지난 날짜 미도착 조회·지연도착 자동 연결은 설정 lateCarry(기본 끔)일 때만
+        if (S.settings.lateCarry && it.kind === 'BASE' && it.status === 'PENDING' && !it.lateAt) S.pastPending.set(it.regNo, { day: d, id: it.id, seq: it.seq, name: it.name });
         if (S.settings.earlyCarry && d >= from && isWaiting(it)) S.earlyPool.push(it); // 1.0.22: 기본은 그날 업무에서만(다른 날엔 안 보임)
       });
     }
@@ -4016,6 +4035,7 @@ function mkEvent(type, item, before, after, extra) {
 async function commit(ops, events, undo) {
   const all = ops.concat((events || []).map((e) => ({ store: 'events', value: e })));
   const ok = await persist(all);
+  if (!ok) { await rollbackMem(); throw new SaveError(); } // 이력·되돌리기에도 넣지 않음
   (events || []).forEach((e) => S.events.push(e));
   if (undo) { S.undo.push(undo); if (S.undo.length > 40) S.undo.shift(); }
   recompute();
@@ -4204,7 +4224,7 @@ async function hydrateImgs(root) {
 }
 async function putBlob(key, blob) {
   if (!blob) return null;
-  const ok = await persist([{ store: 'blobs', value: { key, blob, type: blob.type, size: blob.size, time: Date.now() } }]);
+  const ok = await persist([{ store: 'blobs', value: { key, blob, type: blob.type, size: blob.size, time: Date.now() } }], true);
   return ok ? key : null;
 }
 async function nextPhotoKey(kind) {
@@ -4229,7 +4249,7 @@ async function linkNumber(it, j, mkScan, attach) {
   if (wasPartial) { it.regNo = j.number; it.partial = false; it.flags = (it.flags || []).filter((f) => f !== 'TAIL_ONLY' && f !== 'NO_NUMBER').concat('TAIL_COMPLETED'); }
   else it.listMismatch = j.number;
   it.updatedAt = Date.now();
-  await persist([{ store: 'items', value: it }]);
+  await mustPersist([{ store: 'items', value: it }]);
   recompute();
   attach(sc); FB.go('ok');
   lastResult('ok', it, wasPartial ? '번호 보완 · 정상확인' : '유사번호 → 사람 확인 후 정상확인');
@@ -4285,7 +4305,11 @@ async function applyJudgement(j, ctx) {
   const mkScan = (result, extra) => Object.assign({ id: uid(), day: S.day.date, time: Date.now(), method: j.method || 'MANUAL', raw: j.raw || '', number: j.number || (j.item && j.item.regNo) || '', result, itemId: j.item ? j.item.id : null, photo: null, format: c.format || null, resolved: result !== 'REVIEW' }, extra || {});
   const attach = async (scan) => {
     if (!c.photo || !S.settings.photoSave) return;
-    try { const key = await nextPhotoKey('parcel'); const b = await canvasBlob(scaleCanvas(c.photo, S.settings.photoMax), 0.78); if (await putBlob(key, b)) { scan.photo = key; await persist([{ store: 'scans', value: scan }]); } } catch (e) { /* 사진 저장 실패는 판정에 영향 없음 */ }
+    // 1.0.25: 사진 저장 실패는 확인 실패와 따로 — 확인 기록은 그대로 두고 '사진 누락'으로 표시
+    let key = null;
+    try { key = await nextPhotoKey('parcel'); const b = await canvasBlob(scaleCanvas(c.photo, S.settings.photoMax), 0.78); if (!(await putBlob(key, b))) key = null; } catch (e) { key = null; }
+    if (key) { scan.photo = key; delete scan.photoFail; } else { scan.photoFail = true; toast('📷 송장 사진을 저장하지 못했습니다 — 확인 기록은 저장되었습니다(사진 누락으로 표시)', 'warn', 5000); }
+    await persist([{ store: 'scans', value: scan }], true);
   };
   switch (j.kind) {
     case 'CONFIRM': {
@@ -4364,6 +4388,7 @@ async function applyJudgement(j, ctx) {
       return registerExtra(j, c, mkScan, attach);
     }
     case 'INVALID': {
+      if (c.batch) return applyJudgement(Object.assign({}, j, { kind: 'REVIEW', ocr: j.digits, reason: 'INVALID' }), c);
       if (!(j.candidates || []).length && failToVoice(c, `번호 자릿수 오류 (${j.length}자리)`)) return 'FAIL';
       FB.go('err');
       const ch = await decide({ tone: 'bad', title: `번호 자릿수 오류 (${j.length}자리)`, number: j.digits, body: `등기번호는 ${E.cfg.N}자리입니다. 끝자리가 같은 목록 번호가 있으면 선택하세요.`,
@@ -4374,11 +4399,20 @@ async function applyJudgement(j, ctx) {
       return 'CANCEL';
     }
     case 'REVIEW': {
+      const rtype = reviewTypeFor(j, c);
+      const hold = async () => {
+        const sc = mkScan('REVIEW', { ocr: j.ocr || j.raw, candidates: (j.candidates || []).map((cd) => cd.item.id), resolved: false, reason: j.reason, reviewType: rtype, barcodeNo: j.barcodeNo || null, ocrNo: j.ocrNo || null });
+        await saveScanOnly(sc, '확인필요 기록 취소');
+        await attach(sc);
+        lastResult('warn', null, `확인필요로 보류됨 · ${RV[rtype].label}`);
+        return 'REVIEW';
+      };
+      if (c.batch) { FB.go('warn'); return hold(); } // 여러 장 한꺼번에 판독: 묻지 않고 확인필요로(유형 표시) → 나중에 한꺼번에
       if (!(j.candidates || []).length && failToVoice(c, '번호를 읽지 못했습니다', j.ocr || j.raw)) return 'FAIL';
       FB.go('warn');
       const ocrHtml = (j.ocr || j.raw || '').replace(/[^\d?]/g, '').split('').map((ch) => (ch === '?' ? '<em>?</em>' : esc(ch))).join('');
-      const ch = await decide({ tone: 'rev', title: '❗ 확인이 필요합니다', ocrHtml, photo: c.photo,
-        body: j.reason === 'OCR_SHORT' ? '끝자리만 읽혔습니다. 후보 중 실물과 같은 번호를 선택하세요.' : j.candidates && j.candidates.length ? '번호가 정확히 읽히지 않았습니다. 실물 송장 번호와 같은 후보를 선택하세요.' : '목록에서 맞는 번호를 찾지 못했습니다.',
+      const ch = await decide({ tone: 'rev', title: j.reason === 'MISMATCH' ? '⇄ 바코드와 글자 번호가 다릅니다' : '❗ 확인이 필요합니다', ocrHtml: j.reason === 'MISMATCH' ? '' : ocrHtml, photo: c.photo,
+        body: j.reason === 'MISMATCH' ? `바코드 번호 <b class="mono">${esc(fmtNo(j.barcodeNo || ''))}</b> 는 목록에 없고, 송장 글자 번호 <b class="mono">${esc(fmtNo(j.ocrNo || ''))}</b> 는 목록에 있습니다. 실물 송장을 보고 맞는 번호를 고르세요.` : j.reason === 'OCR_SHORT' ? '끝자리만 읽혔습니다. 후보 중 실물과 같은 번호를 선택하세요.' : j.candidates && j.candidates.length ? '번호가 정확히 읽히지 않았습니다. 실물 송장 번호와 같은 후보를 선택하세요.' : '목록에서 맞는 번호를 찾지 못했습니다.',
         cands: (j.candidates || []).map((cd) => ({ id: cd.item.id, item: cd.item, diff: cd.diff, note: cd.type === 'TAIL' ? '끝4자리 일치' : '' }))
           .concat((S.idx.partials || []).filter((p) => { const od = (j.ocr || j.raw || '').replace(/[^\d?]/g, ''); return od.length > p.regNo.length && od.endsWith(p.regNo); }).map((p) => ({ id: p.id, item: p, note: '끝자리만 등록한 항목' }))),
         buttons: [{ id: 'hold', label: '보류 (확인필요로 저장)', cls: 'warn' }, { id: 'manual', label: '⌨ 직접 입력' }, { id: 'retry', label: '다시 촬영', cls: 'ghost' }] });
@@ -4388,24 +4422,58 @@ async function applyJudgement(j, ctx) {
         jj.method = j.method;
         return applyJudgement(jj, c);
       }
-      if (ch === 'hold') {
-        const sc = mkScan('REVIEW', { ocr: j.ocr || j.raw, candidates: (j.candidates || []).map((cd) => cd.item.id), resolved: false, reason: j.reason });
-        await saveScanOnly(sc, '확인필요 기록 취소');
-        await attach(sc);
-        lastResult('warn', null, '확인필요로 보류됨');
-        return 'REVIEW';
-      }
+      if (ch === 'hold') return hold();
       if (ch === 'manual') openManual();
       return 'CANCEL';
     }
     default:
+      if (c.batch && c.photo) { // 일괄 판독: 못 읽은 사진도 버리지 않고 확인필요(바코드 실패·흐림)로 저장
+        const sc = mkScan('REVIEW', { ocr: '', candidates: [], resolved: false, reason: 'NOTHING', reviewType: c.blurry ? 'BLURRY' : 'BARCODE_FAIL', barZone: !!c.barZone });
+        await saveScanOnly(sc, '확인필요 기록 취소'); await attach(sc); FB.go('warn');
+        return 'REVIEW';
+      }
       if (c.source !== 'LIVE' && failToVoice(c, '번호를 찾지 못했습니다')) return 'FAIL';
       if (c.source !== 'LIVE') { FB.go('err'); toast('번호를 찾지 못했습니다. 번호가 잘 보이게 다시 촬영하거나 직접 입력하세요.', 'err'); }
       return 'NOTHING';
   }
 }
+/* 1.0.25 확인필요 유형: 무엇을 하면 되는지까지 */
+const RV = {
+  MISMATCH: { label: '바코드·글자 번호 불일치', icon: '⇄', hint: '바코드와 송장 글자 번호가 다릅니다 — 실물 송장을 보고 맞는 번호를 고르세요' },
+  MULTI_SIMILAR: { label: '비슷한 번호 여러 개', icon: '≈', hint: '후보가 여러 개입니다 — 실물과 같은 번호를 고르세요' },
+  OCR_FAIL: { label: '글자 판독 실패', icon: '🔤', hint: '번호가 일부만 읽혔습니다 — 후보를 고르거나 번호를 입력하세요' },
+  BARCODE_FAIL: { label: '바코드 판독 실패', icon: '▥', hint: '바코드는 있는데 읽지 못했습니다 — 사진을 보고 번호를 입력하거나 다시 촬영하세요' },
+  BLURRY: { label: '사진 흐림·잘림', icon: '🌫', hint: '사진이 흐리거나 번호가 잘렸습니다 — 다시 촬영하거나 번호를 입력하세요' },
+  NOT_IN_LIST: { label: '기준목록에 없는 번호', icon: '❓', hint: '목록외 맞음 · 비슷한 목록 번호와 같은 택배 · 잘못 읽음(삭제) 중에서 고르세요' },
+  DUP_SUSPECT: { label: '중복 등록 의심', icon: '🔁', hint: '이미 확인된 번호와 한두 자리만 다릅니다 — 같은 택배를 다시 찍었으면 삭제하세요' },
+  LIST_NO: { label: '목록 번호 확인', icon: '📝', hint: '등기리스트 인식이 애매한 번호 — 목록 사진과 비교해 번호를 확인하세요' },
+};
+const RV_ORDER = ['MISMATCH', 'DUP_SUSPECT', 'MULTI_SIMILAR', 'OCR_FAIL', 'BARCODE_FAIL', 'BLURRY', 'NOT_IN_LIST', 'LIST_NO'];
+function reviewTypeFor(j, c) {
+  if (j.reason === 'MISMATCH') return 'MISMATCH';
+  if ((j.candidates || []).length >= 2) return 'MULTI_SIMILAR';
+  if (c && c.blurry) return 'BLURRY';
+  if (/OCR/.test(j.method || '') || j.reason === 'OCR_SHORT' || j.reason === 'INVALID' || E.digits(j.ocr || j.raw || '').length >= 2 || (j.candidates || []).length) return 'OCR_FAIL'; // 글자를 일부라도 읽음
+  return 'BARCODE_FAIL';
+}
+function reviewTypeOf(sc) { return sc.reviewType || reviewTypeFor({ reason: sc.reason, method: sc.method, candidates: sc.candidates || [], ocr: sc.ocr, raw: sc.raw }, null); }
+/* 목록외로 저장된 '없는 번호' 중 이미 정상확인된 목록 번호와 한두 자리만 다른 것 = 같은 택배를 잘못 읽어 또 찍었을 수 있음 */
+function dupSuspectOf(it) {
+  if (!it || it.kind !== 'EXTRA' || it.deleted || !it.regNo) return null;
+  const c = E.findSimilar(it.regNo, S.idx).find((x) => x.item.status === 'CONFIRMED' && x.item.id !== it.id);
+  return c ? c.item : null;
+}
+function reviewGroups() {
+  const g = {};
+  const add = (t, x) => { (g[t] = g[t] || []).push(x); };
+  S.scans.filter((sc) => sc.result === 'REVIEW' && !sc.resolved && !sc.cancelled).forEach((sc) => add(reviewTypeOf(sc), { scan: sc }));
+  uncheckedAll().forEach((it) => { const d = dupSuspectOf(it); add(d ? 'DUP_SUSPECT' : 'NOT_IN_LIST', { item: it, dupOf: d }); });
+  S.items.filter((x) => x.needsCheck && x.status === 'PENDING' && !x.deleted).forEach((it) => add('LIST_NO', { item: it }));
+  return g;
+}
+function reviewTotal() { const g = reviewGroups(); return Object.values(g).reduce((n, a) => n + a.length, 0); }
 /* 촬영 화면에서 읽은 번호(직접 입력 아님)이고, 오늘 목록이 있고, 먼저 등록 모드가 아니면 '나중에 확인' */
-function laterOK(c) { return S.settings.extraLater !== false && Scan.open && c && c.source !== 'MANUAL' && S.items.some((x) => x.kind !== 'EXTRA' && !x.deleted) && !earlyMode(); }
+function laterOK(c) { return S.settings.extraLater !== false && (Scan.open || !!(c && c.batch)) && c && c.source !== 'MANUAL' && S.items.some((x) => x.kind !== 'EXTRA' && !x.deleted) && !earlyMode(); }
 function uncheckedAll() { return S.items.filter((x) => !x.deleted && x.kind === 'EXTRA' && x.unchecked); }
 async function registerExtra(j, c, mkScan, attach, noLink) {
   const late = S.pastPending.get(j.number);
@@ -4466,7 +4534,7 @@ function blurOf(gray) {
   } catch (e) { return false; }
 }
 /* ---------------------------------------------------------------- 송장 판독 (정지 사진) */
-async function readStill(canvas, gray, source) {
+async function readStill(canvas, gray, source, opts) {
   // 1) 바코드: 기기 내장 → 자체 판독
   let vals = [];
   if (S.settings.nativeBarcode && Cam.detector) { try { vals = (await Cam.detector.detect(canvas)).map((b) => ({ raw: b.rawValue, format: b.format })); } catch (e) { vals = []; } }
@@ -4479,21 +4547,36 @@ async function readStill(canvas, gray, source) {
     if (!vals.some((v) => E.digits(v.raw).length >= 8)) vals = vals.concat(BC.scan(g2, { band: 5, sharp: 1.2 }).map((b) => ({ raw: b.text, format: b.format })));
   }
   const withDigits = vals.filter((v) => E.digits(v.raw).length >= 8);
+  const bx = opts || {};
   if (withDigits.length) {
     const j = E.judgeNumbers(withDigits, S.idx, { method: 'BARCODE' });
-    if (j.kind !== 'NOTHING' && j.kind !== 'INVALID') return applyJudgement(j, { source, photo: canvas, format: withDigits[0].format });
+    // 1.0.25 바코드·글자 교차 확인: 바코드 번호가 목록에 없으면 송장 글자도 읽어 봄 — 글자 번호가 목록에 있고 바코드와 다르면 자동 확정하지 않고 '불일치' 확인필요
+    if (MODEL && ['EXTRA_NEW', 'SIMILAR', 'PARTIAL'].includes(j.kind) && S.items.some((x) => x.kind !== 'EXTRA' && !x.deleted)) {
+      try {
+        const lr0 = await V.readLabel(gray, { model: MODEL });
+        const jo = E.judgeOCR(lr0.runs, S.idx, { strict: true });
+        if (jo.item && jo.item.kind !== 'EXTRA' && jo.item.regNo && jo.item.regNo !== j.number) {
+          return applyJudgement({ kind: 'REVIEW', reason: 'MISMATCH', method: 'BARCODE', raw: j.number, ocr: jo.item.regNo, barcodeNo: j.number, ocrNo: jo.item.regNo,
+            candidates: [{ item: jo.item, diff: E.diffPos(j.number, jo.item.regNo), type: 'OCR' }] }, { source, photo: canvas, batch: bx.batch });
+        }
+      } catch (e) { /* 교차 확인 실패는 바코드 판정대로 */ }
+    }
+    if (j.kind !== 'NOTHING' && j.kind !== 'INVALID') return applyJudgement(j, { source, photo: canvas, format: withDigits[0].format, batch: bx.batch });
   }
   // 2) 숫자 OCR
   if (!MODEL) { toast('글자 판독 모델을 불러오지 못했습니다', 'err'); return 'NOTHING'; }
   const lr = await V.readLabel(gray, { model: MODEL });
   const j = E.judgeOCR(lr.runs, S.idx, { strict: !S.settings.ocrAuto });
   // 바코드도 번호도 못 읽었는데 바코드처럼 보이는 자리가 흐리면: 초점 안내(너무 가까이 찍은 작은 라벨)
+  let blurry = false, barZone = false;
   if (!withDigits.length && (j.kind === 'NOTHING' || (j.kind === 'REVIEW' && !j.candidates.length))) {
     const b = blurOf(gray);
-    if (b) toast('사진이 흐려요(초점이 안 맞음) — 송장에서 15cm 이상 떨어져서 다시 찍어 주세요' + (Cam.zoomCaps ? '. 작은 라벨은 🔍 확대를 쓰세요' : ''), 'warn', 6000);
+    blurry = !!b;
+    try { barZone = BC.locate(V.fit(gray, 1280)).length > 0; } catch (e) { /* */ }
+    if (b && !bx.batch) toast('사진이 흐려요(초점이 안 맞음) — 송장에서 15cm 이상 떨어져서 다시 찍어 주세요' + (Cam.zoomCaps ? '. 작은 라벨은 🔍 확대를 쓰세요' : ''), 'warn', 6000);
   }
-  if (j.kind === 'NOTHING' && withDigits.length) return applyJudgement(E.judgeNumbers(withDigits, S.idx, { method: 'BARCODE' }), { source, photo: canvas });
-  return applyJudgement(j, { source, photo: canvas });
+  if (j.kind === 'NOTHING' && withDigits.length) return applyJudgement(E.judgeNumbers(withDigits, S.idx, { method: 'BARCODE' }), { source, photo: canvas, batch: bx.batch });
+  return applyJudgement(j, { source, photo: canvas, batch: bx.batch, blurry, barZone });
 }
 
 /* ---------------------------------------------------------------- 카메라 */
@@ -4911,6 +4994,7 @@ async function processParcelFiles(files) {
   if (!S.day || readOnly()) { toast('진행 중인 업무일이 없습니다', 'warn'); return; }
   const list = [...files];
   const busy = Scan.open ? $('#scanbusy') : null;
+  const batch = list.length > 1, tally = {};
   for (let i = 0; i < list.length; i++) {
     const f = list[i];
     progressToast(`송장 사진 판독 중 ${i + 1}/${list.length}`);
@@ -4918,8 +5002,15 @@ async function processParcelFiles(files) {
     try {
       const { canvas, gray } = await loadImage(f, 2400);
       if (busy) busy.classList.add('hidden');
-      await readStill(canvas, gray, 'STILL');
-    } catch (e) { toast(`${f.name || '사진'}: ${e.message}`, 'err', 5000); }
+      const r = await readStill(canvas, gray, 'STILL', { batch });
+      tally[r || 'NOTHING'] = (tally[r || 'NOTHING'] || 0) + 1;
+    } catch (e) { if (e && e.name === 'SaveError') { tally.SAVEFAIL = (tally.SAVEFAIL || 0) + 1; continue; } tally.ERROR = (tally.ERROR || 0) + 1; toast(`${f.name || '사진'}: ${e.message}`, 'err', 5000); }
+  }
+  if (batch) { // 일괄 판독 결과 한눈에
+    const t = (k) => tally[k] || 0;
+    const msg = `📷 ${list.length}장 판독: 정상확인 ${t('CONFIRM')} · 중복 ${t('DUPLICATE') + t('EXTRA_DUP')} · 목록외·없는 번호 ${t('EXTRA')} · 확인필요 ${t('REVIEW')}${t('SAVEFAIL') ? ` · 저장 실패 ${t('SAVEFAIL')}` : ''}${t('ERROR') ? ` · 오류 ${t('ERROR')}` : ''}`;
+    S.lastBatch = { at: Date.now(), n: list.length, tally };
+    setTimeout(() => toast(msg + (t('REVIEW') ? ' — [확인필요]에서 유형별로 처리하세요' : ''), t('REVIEW') || t('SAVEFAIL') ? 'warn' : 'ok', 9000), 300);
   }
   if (busy) { busy.classList.add('hidden'); busy.textContent = '판독 중…'; }
   progressToast(null);
@@ -5182,7 +5273,11 @@ async function commitDraft() {
     if (n) setTimeout(() => openPreSheet(true), 350);
     // 함께 작업: 목록을 검토하는 동안 다른 휴대폰에서 먼저 등록된 송장도 바로 도착 체크
     if (SY && SY.enabled()) setTimeout(async () => { const r = await reconcileSync(); if (r.length) bigReconciled(r, 0); }, 2700);
-  } catch (e) { toast('등록 실패: ' + e.message, 'err', 6000); imgJobs.length = 0; }
+  } catch (e) {
+    if (e && e.name === 'SaveError') toast('⚠ 기준목록 등록이 저장되지 않았습니다 — 읽은 목록은 그대로 있으니 다시 [기준목록에 등록]을 누르세요', 'err', 8000);
+    else toast('등록 실패: ' + e.message, 'err', 6000);
+    imgJobs.length = 0;
+  }
   regBusy(false);
   if (S.draft) S.draft.saving = false;
   if (imgJobs.length) saveListImages(imgJobs);
@@ -5555,7 +5650,7 @@ async function reconcileSync() {
   }
   // 같은 기록 번호의 사건이 이미 있으면(다른 휴대폰이 먼저 맞춤) 화면 기록에 두 번 넣지 않음
   const evIds = new Set(S.events.map((e) => e.id));
-  await persist(ops.concat(evs.map((e) => ({ store: 'events', value: e }))));
+  if (!(await persist(ops.concat(evs.map((e) => ({ store: 'events', value: e })))))) { await rollbackMem(); return []; }
   evs.forEach((e) => { if (!evIds.has(e.id) && e.day === S.day.date) S.events.push(e); });
   recompute();
   notifyTabs();
@@ -6554,7 +6649,7 @@ function vHome() {
     const prev = (S.days || []).find((d) => d.status !== 'CLOSED' && d.date !== today);
     return `<div class="card hl"><div class="ttl">📅 ${dayLabel(today, true)}</div><p class="sub" style="margin:0 0 12px">업무 순서: ① 등기리스트 등록 → ② 사전수령 체크 → ③ 송장 확인 → ④ 결과 확인·마감<br><b>택배가 먼저 오면</b> ③ 송장을 먼저 등록해 두고 나중에 ①을 해도 됩니다 — 번호가 같은 송장은 자동으로 도착 체크됩니다.</p>
       <button class="btn pri lg block" data-act="startToday" type="button">오늘 업무 시작</button></div>
-      ${prev ? `<div class="banner warn"><div class="grow"><b>${dayLabel(prev.date)}</b> 업무가 마감되지 않았습니다.</div><button class="btn sm" data-act="openDay" data-arg="${prev.date}" type="button">열기</button></div>` : ''}
+      ${prev ? `<div class="banner warn"><div class="grow"><b>${dayLabel(prev.date)}</b> 업무가 마감되지 않았습니다.<div class="small">미도착은 그날 업무 결과입니다 — 열어서 마감(미도착 전달)하세요. 오늘 업무로 넘어오지 않습니다.</div></div><button class="btn sm" data-act="openDay" data-arg="${prev.date}" type="button">열어서 마감</button></div>` : ''}
       <div class="card"><div class="ttl">📦 타택배 인계</div><div class="btns two"><button class="btn" data-act="others" type="button">📦 등록·조회</button><button class="btn pri" data-act="quick" type="button">⚡ 연속 촬영 (30장)</button></div></div>
       ${syncCard()}
       <div class="card"><div class="ttl">🗂 다른 날짜</div><button class="btn block" data-act="dayMenu" type="button">날짜 선택 · 과거자료 열기</button></div>`;
@@ -6566,8 +6661,9 @@ function vHome() {
   const att = [];
   const wT = waitingToday().length, wP = S.earlyPool.length;
   if (noList && !wT) att.push(`<button class="item" data-act="go" data-arg="list" type="button"><div class="chk">📋</div><div class="grow"><b>등기리스트를 등록하세요</b><div class="meta">사진·엑셀·붙여넣기로 기준목록을 만듭니다. 택배가 먼저 왔다면 아래 [📦 송장 먼저 등록]부터 해도 됩니다</div></div></button>`);
-  if (st.review) att.push(`<button class="item flag" data-act="filter" data-arg="rev" type="button"><div class="chk">❗</div><div class="grow"><b>확인필요 송장 ${st.review}건</b><div class="meta">번호가 애매하게 읽혀 보류된 건 — 사람 확인 필요</div></div></button>`);
-  if (st.flagged) att.push(`<button class="item flag" data-act="filter" data-arg="flag" type="button"><div class="chk">📝</div><div class="grow"><b>목록 번호 확인필요 ${st.flagged}건</b><div class="meta">등기리스트 인식이 애매한 번호 — 목록 사진과 비교</div></div></button>`);
+  const rg = reviewGroups(), rtypes = RV_ORDER.filter((t) => rg[t] && rg[t].length && t !== 'NOT_IN_LIST'), rn = rtypes.reduce((n, t) => n + rg[t].length, 0);
+  if (rn) att.push(`<button class="item flag" data-act="filter" data-arg="rev" type="button"><div class="chk">❗</div><div class="grow"><b>확인필요 ${rn}건</b><div class="meta">${rtypes.map((t) => `${RV[t].icon} ${RV[t].label} ${rg[t].length}`).join(' · ')} — 유형별로 할 일을 보여 줍니다</div></div></button>`);
+
   if (gaps.gaps.length) att.push(`<button class="item flag" data-act="go" data-arg="list" type="button"><div class="chk">🔢</div><div class="grow"><b>순번 누락 의심 ${gaps.gaps.length}건</b><div class="meta">${gaps.gaps.slice(0, 12).join(', ')}${gaps.gaps.length > 12 ? ' …' : ''} — 해당 행을 확대 촬영하거나 직접 입력</div></div></button>`);
   const inc = incompletePending().length;
   if (inc) att.push(`<button class="item" data-act="filter" data-arg="partial" type="button"><div class="chk">🔢</div><div class="grow"><b>번호 없음·일부 번호로 등록한 미도착 ${inc}건</b><div class="meta">송장을 확인할 때 끝자리가 맞으면 자동 제안되고, 번호 없는 항목은 [목록 항목과 연결]로 고르면 번호가 채워집니다</div></div></button>`);
@@ -6602,7 +6698,7 @@ function vHome() {
     <div class="prog dprog" style="margin:10px 0 6px"><i class="a" style="width:${st.base ? (st.confirmed / st.base) * 100 : 0}%"></i><i class="b" style="width:${st.base ? (st.preTaken / st.base) * 100 : 0}%"></i><i class="c" style="width:${pend}%"></i></div>
     <div class="dleg"><span><i style="background:var(--ok)"></i>정상확인 ${st.confirmed}</span><span><i style="background:var(--pre)"></i>사전수령 ${st.preTaken}</span><span><i style="background:var(--pend)"></i>미도착 ${st.pending}</span><span class="muted">기준 ${st.base}</span></div>
   </div>
-  <div class="stats">${box('', '기준목록', st.base, 'base', '📋')}${box('ok', '정상확인', st.confirmed, 'ok', '✅')}${box('pend', '미도착', st.pending, 'pend', '⚠')}${box('pre', '사전수령', st.preTaken, 'pre', '📦')}${st.early ? box('extra', '목록 대기', st.early, 'early', '📦') : box('extra', '목록외 추가', st.extra, 'extra', '➕')}${box('rev', '확인필요', st.review + st.flagged, 'rev', '❗')}</div>
+  <div class="stats">${box('', '기준목록', st.base, 'base', '📋')}${box('ok', '정상확인', st.confirmed, 'ok', '✅')}${box('pend', '미도착', st.pending, 'pend', '⚠')}${box('pre', '사전수령', st.preTaken, 'pre', '📦')}${st.early ? box('extra', '목록 대기', st.early, 'early', '📦') : box('extra', '목록외 추가', st.extra, 'extra', '➕')}${box('rev', '확인필요', reviewTotal(), 'rev', '❗')}</div>
   ${baseS.length ? `<div class="card dash2"><div class="ttl">🗺 순번별 현황 <span class="tiny muted" style="font-weight:600">칸을 누르면 그 건 — 초록 정상·노랑 사전·빨강 미도착</span></div>${dmap}
     <div class="dgrid">
       <div><div class="l">확인 속도</div><div class="v">${rate ? rate.toFixed(1) + '<small>건/분</small>' : '—'}</div><div class="s">최근 30분 ${recent30}건</div></div>
@@ -6626,6 +6722,8 @@ function vHome() {
   <div class="btns two" style="margin-bottom:12px"><button class="btn" data-act="others" type="button">📦 등록·조회</button><button class="btn pri" data-act="quick" type="button">⚡ 연속 촬영 (30장)</button></div>
   ${syncCard()}
   <h3>🏁 마무리</h3>
+  ${statusLine()}
+  ${closed ? `<button class="btn block" style="margin-bottom:8px" data-act="closeDay" type="button">📨 마감 요약 · 미도착 전달 · 보고서${d.handoffAt ? ` (전달 ${hm(d.handoffAt)})` : ''}</button>` : ''}
   <div class="btns two">${closed ? `<button class="btn" data-act="exportExcel" type="button">📊 엑셀 저장</button><button class="btn" data-act="reopenDay" type="button">🔓 다시 열기</button>` : `<button class="btn" data-act="exportExcel" type="button">📊 엑셀 저장</button><button class="btn warn" data-act="closeDay" type="button">🏁 업무 마감</button>`}</div>
   ${S.undo.length && !closed ? `<button class="btn block ghost" style="margin-top:12px" data-act="undo" type="button">↶ 마지막 처리 취소 — ${esc(S.undo[S.undo.length - 1].label)}</button>` : ''}
   ${recent ? `<h3>최근 처리</h3><div class="card tight">${recent}</div>` : ''}`;
@@ -6641,6 +6739,7 @@ function evText(e) {
     case 'LIST_IMPORT': return `📋 ${esc(e.memo || '')}`;
     case 'EDIT': return `${no}수정: ${esc(e.memo || '')}`;
     case 'CLOSE': return '🏁 업무 마감';
+    case 'HANDOFF': return `📨 ${esc(e.memo || '미도착 전달')}`;
     case 'REOPEN': return '🔓 다시 열기';
     case 'LATE': return `${no}지연도착 확인`;
     case 'LINK': return `${no}🔗 ${esc(e.memo || '목록에서 도착 체크')}`;
@@ -6822,7 +6921,7 @@ function filterItems(f) {
     default: return base;
   }
 }
-function countFor(f) { return f === 'rev' ? S.st.review + S.st.flagged : filterItems(f).length; }
+function countFor(f) { return f === 'rev' ? reviewTotal() : filterItems(f).length; }
 function vResult() {
   if (!S.day) return needDay();
   return `<div class="search"><div class="row"><div class="inpwrap grow"><input class="inp" id="q" type="text" ${kbdMode('q')} enterkeyhint="search" placeholder="🔎 끝자리·번호·순번·성명" value="${esc(S.query)}" autocomplete="off" autocorrect="off" spellcheck="false"><button class="clr keepfocus" data-clear="q" type="button" aria-label="검색어 지우기">✕</button></div>${kbdBtn('q')}${micBtn('q')}</div>
@@ -6898,8 +6997,19 @@ function renderResultList() {
     const key = { seq: (x) => (x.seq != null ? x.seq : 1e9), time: (x) => -(x.confirmedAt || 0), no: (x) => x.regNo, tail: (x) => E.tail(x.regNo, 5) }[S.sort] || ((x) => x.seq || 0);
     list = list.slice().sort((a, b) => { const ka = key(a), kb = key(b); return ka < kb ? -1 : ka > kb ? 1 : 0; });
     if (S.filter === 'rev') {
-      const revs = S.scans.filter((s) => s.result === 'REVIEW' && !s.resolved && !s.cancelled);
-      html += revs.map((s) => `<button class="item flag" data-act="scanrev" data-arg="${s.id}" type="button"><div class="chk">❗</div><div class="grow"><div class="no mono">${esc(s.ocr || s.raw || '(판독 불가)')}</div><div class="sub2"><span class="badge st-rev">송장</span><div class="meta">${hms(s.time)} · 송장 확인필요 · 후보 ${(s.candidates || []).length}${s.photo ? ' · 📷' : ''}</div></div></div></button>`).join('');
+      // 1.0.25 확인필요: 유형별로 묶고 각 유형에서 할 일을 함께 보여 줌
+      const g = reviewGroups(), types = RV_ORDER.filter((t) => g[t] && g[t].length);
+      if (!types.length) html += '<div class="empty"><div class="i">✅</div>확인필요 건이 없습니다</div>';
+      else html += `<div class="rvsum">${types.map((t) => `<a class="chip" href="#rv-${t}">${RV[t].icon} ${RV[t].label} <b>${g[t].length}</b></a>`).join('')}</div>`;
+      types.filter((t) => t !== 'LIST_NO').forEach((t) => {
+        html += `<div class="rvhead" id="rv-${t}"><b>${RV[t].icon} ${RV[t].label} · ${g[t].length}건</b><div class="small sub">${RV[t].hint}</div>${t === 'NOT_IN_LIST' && !readOnly() ? '<button class="btn sm pri" data-act="nolistReview" type="button" style="margin-top:6px">▶ 하나씩 확인</button>' : ''}</div>`;
+        html += g[t].map((x) => {
+          if (x.scan) { const sc = x.scan; return `<button class="item flag" data-act="scanrev" data-arg="${sc.id}" type="button"><div class="chk">${RV[t].icon}</div><div class="grow"><div class="no mono">${t === 'MISMATCH' ? `${esc(fmtNo(sc.barcodeNo || sc.raw || ''))} ⇄ ${esc(fmtNo(sc.ocrNo || sc.ocr || ''))}` : esc(sc.ocr || sc.raw || '(판독 불가)')}</div><div class="sub2"><span class="badge st-rev">${RV[t].label}</span><div class="meta">${hms(sc.time)} · ${esc(E.METHOD[sc.method] || sc.method || '')} · 후보 ${(sc.candidates || []).length}${sc.photo ? ' · 📷' : ''}</div></div></div></button>`; }
+          const it = x.item, d = x.dupOf;
+          return `<button class="item flag" data-act="item" data-arg="${esc(it.id)}" type="button"><div class="chk">${RV[t].icon}</div><div class="grow"><div class="no mono">${fmtNo(it)}</div><div class="sub2"><span class="badge st-rev">${RV[t].label}</span><div class="meta">${hms(it.createdAt)}${d ? ` · 확인된 ${d.seq != null ? d.seq + '번 ' : ''}${esc(E.tail(d.regNo, 5))} 와 비슷` : ''}</div></div></div></button>`;
+        }).join('');
+      });
+      if (g.LIST_NO && g.LIST_NO.length) html += `<div class="rvhead" id="rv-LIST_NO"><b>${RV.LIST_NO.icon} ${RV.LIST_NO.label} · ${g.LIST_NO.length}건</b><div class="small sub">${RV.LIST_NO.hint}</div></div>`;
     }
     if (S.filter === 'nolist' && list.length && !readOnly()) html += `<button class="btn block pri" data-act="nolistReview" type="button" style="margin-bottom:8px">▶ 없는 번호 하나씩 확인 (${list.length}건)</button>`;
     $('#rcount').textContent = `${FILTERS.find((f) => f[0] === S.filter)[1]} ${list.length}건`;
@@ -6955,6 +7065,14 @@ function resultVoiceHost() {
 }
 
 /* ---------------------------------------------------------------- 과거자료 · 백업 */
+/* 1.0.25 저장·백업·함께 작업 상태 한 줄 */
+function backupAgo() { const b = S.lastBackup; if (!b || !b.at) return null; const dd = Math.floor((Date.now() - b.at) / 86400000); return { b, dd, txt: `${dayLabel(localDate(new Date(b.at)))} ${hm(b.at)}${dd ? ` (${dd}일 전)` : ' (오늘)'} · ${b.kind === 'all' ? '전체(사진 포함)' : b.kind === 'data' ? '전체 자료만' : '하루치'}` }; }
+function statusLine() {
+  const ba = backupAgo(), sy = SY ? SY.status() : { enabled: false };
+  const se = S.saveError && Date.now() - S.saveError.at < 6 * 3600000 ? S.saveError : null;
+  const it = (cls, txt) => `<span class="sti ${cls}">${txt}</span>`;
+  return `<div class="stline">${it(se ? 'bad' : 'good', se ? `💽 저장 실패 ${hm(se.at)}${se.quota ? ' (공간 부족)' : ''}` : '💽 기기 저장 정상')}${it(!ba ? 'warn' : ba.dd >= 7 ? 'warn' : 'good', ba ? `💾 백업 ${ba.dd ? ba.dd + '일 전' : '오늘'}` : '💾 백업 안 함')}${it(!sy.enabled ? '' : sy.state === 'ok' ? 'good' : 'warn', sy.enabled ? `🔗 함께 작업 ${esc(SYNC_STATE[sy.state] || sy.state || '')}` : '🔗 함께 작업 꺼짐')}</div>`;
+}
 function vHistory() {
   const days = S.days || [];
   const today = localDate();
@@ -6966,7 +7084,8 @@ function vHistory() {
       <div class="btns"><button class="btn" data-act="backup" data-arg="today" type="button" ${S.day ? '' : 'disabled'}>💾 ${S.day ? dayLabel(S.day.date) : '현재 날짜'} 백업 (사진 포함 ZIP)</button>
       <div class="btns two"><button class="btn" data-act="backup" data-arg="all" type="button">💾 전체 백업 (사진 포함)</button><button class="btn" data-act="backup" data-arg="data" type="button">🗃 전체 자료만 (사진 제외)</button></div>
       <button class="btn" data-act="restore" type="button">♻ 백업 복원 (ZIP · JSON)</button></div>
-      <div class="tiny muted" style="margin-top:10px" id="storage-info">저장공간 확인 중…</div></div>
+      <div class="small" style="margin-top:10px">${(() => { const ba = backupAgo(); return ba ? `💾 마지막 백업: <b>${ba.txt}</b>${ba.dd >= 7 ? ' — <b style="color:var(--pre)">일주일이 넘었습니다. 백업하세요</b>' : ''}` : '💾 <b style="color:var(--pre)">아직 백업하지 않았습니다</b> — 휴대폰 고장·초기화에 대비해 백업하세요'; })()}</div>
+      <div class="tiny muted" style="margin-top:6px" id="storage-info">저장공간 확인 중…</div></div>
     <div class="card tight small sub">🖥 <b>PC에서 쓰기</b> — 백업 ZIP 안의 <span class="mono">database/날짜_결과.xlsx</span>를 바로 열 수 있고, 함께 제공된 <span class="mono">backup_to_sqlite.py</span>로 SQLite 데이터베이스로 변환할 수 있습니다.</div>`;
 }
 async function showStorage() {
@@ -7199,9 +7318,10 @@ async function openScanReview(id) {
   const sc = S.scans.find((s) => s.id === id);
   if (!sc) return;
   const cands = (sc.candidates || []).map((cid) => S.items.find((x) => x.id === cid)).filter(Boolean);
-  const html = `<h2>송장 확인필요</h2><div class="res rev"><div class="small sub">${hms(sc.time)} · ${esc(E.METHOD[sc.method] || sc.method || '')}</div><div class="bigno">${esc(sc.ocr || sc.raw || '(판독 불가)')}</div>${sc.photo ? `<img data-blob="${esc(sc.photo)}" alt="송장" style="width:100%;border-radius:10px;background:#111">` : ''}</div>
+  const rt = reviewTypeOf(sc);
+  const html = `<h2>송장 확인필요 · ${RV[rt].icon} ${RV[rt].label}</h2><div class="banner info"><div class="grow small">${RV[rt].hint}${rt === 'MISMATCH' ? `<br>바코드 <b class="mono">${esc(fmtNo(sc.barcodeNo || ''))}</b> · 송장 글자 <b class="mono">${esc(fmtNo(sc.ocrNo || ''))}</b> — 글자 번호가 맞으면 아래 후보, 바코드 번호가 맞으면 [입력]` : ''}</div></div><div class="res rev"><div class="small sub">${hms(sc.time)} · ${esc(E.METHOD[sc.method] || sc.method || '')}</div><div class="bigno">${esc(sc.ocr || sc.raw || '(판독 불가)')}</div>${sc.photo ? `<img data-blob="${esc(sc.photo)}" alt="송장" style="width:100%;border-radius:10px;background:#111">` : ''}</div>
     ${readOnly() ? '' : `${cands.length ? '<h3>후보 — 실물과 같은 번호 선택</h3>' + cands.map((it) => `<button class="cand" data-act="revPick" data-arg="${sc.id}|${it.id}" type="button"><div class="grow"><div class="no">${fmtNo(it, sc.ocr && sc.ocr.length === 13 ? E.diffPos(sc.ocr.replace(/\?/g, '_'), it.regNo) : [])}</div><div class="sub2">${stBadge(it)}<div class="small sub">${it.seq != null ? '#' + it.seq : ''} ${esc(it.name || '')}</div></div></div></button>`).join('') : ''}
-    <h3>번호 직접 입력</h3><div class="row"><input class="inp num grow" id="revno" inputmode="numeric" maxlength="16" placeholder="13자리 또는 끝 4~5자리" value="${esc((sc.ocr || '').replace(/\D/g, '').length === 13 ? sc.ocr : '')}"><button class="btn pri" data-act="revInput" data-arg="${sc.id}" type="button">확인</button></div>
+    <h3>번호 직접 입력</h3><div class="row"><input class="inp num grow" id="revno" inputmode="numeric" maxlength="16" placeholder="13자리 또는 끝 4~5자리" value="${esc(rt === 'MISMATCH' && sc.barcodeNo ? sc.barcodeNo : (sc.ocr || '').replace(/\D/g, '').length === 13 ? sc.ocr : '')}"><button class="btn pri" data-act="revInput" data-arg="${sc.id}" type="button">확인</button></div>
     <div class="btns two" style="margin-top:12px"><button class="btn" data-act="revIgnore" data-arg="${sc.id}" type="button">무시 (택배 아님)</button><button class="btn ghost" data-act="sheetClose" type="button">닫기</button></div>`}`;
   openSheet(html);
 }
@@ -7387,20 +7507,113 @@ function openPreSheet(afterImport) {
 }
 
 /* ---------------------------------------------------------------- 시트: 업무 마감 */
+/* ---------------------------------------------------------------- 1.0.25 업무 마감: 자동 집계 · 미도착 전달 · 보고서
+ * 미도착은 그날 업무 결과 — 담당자에게 전달(공유·복사)하고 마감. 다음 날로 넘어가지 않음 */
+async function markHandoff() {
+  if (!S.day || S.day.handoffAt) return;
+  S.day.handoffAt = Date.now();
+  await commit([{ store: 'days', value: S.day }], [mkEvent('HANDOFF', null, null, null, { memo: `미도착 ${S.st.pending}건 전달` })], null);
+}
+/* OCR 정정 기록 분석: 숫자 혼동 쌍·틀린 자리·못 읽은 자리 */
+function fixAnalysis(a) {
+  const pairs = new Map(), pos = new Array(E.cfg.N).fill(0);
+  let one = 0, many = 0, unread = 0, len = 0;
+  (a || []).forEach((x) => {
+    const r = String(x.raw || ''), f = String(x.fixed || '');
+    if (r.length !== f.length) { len++; return; }
+    let d = 0;
+    for (let i = 0; i < r.length; i++) {
+      if (r[i] === f[i]) continue;
+      d++; if (i < pos.length) pos[i]++;
+      if (r[i] === '?') { unread++; continue; }
+      const k = `${r[i]} → ${f[i]}`; pairs.set(k, (pairs.get(k) || 0) + 1);
+    }
+    if (d === 1) one++; else if (d > 1) many++;
+  });
+  return { pairs: [...pairs.entries()].sort((p, q) => q[1] - p[1]), pos, one, many, unread, len };
+}
+function durText(ms) { if (!(ms > 0)) return '-'; const m = Math.round(ms / 60000); return m >= 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m}분`; }
+function closeSummary() {
+  const st = S.st, d = S.day;
+  const base = S.items.filter((x) => !x.deleted && x.kind !== 'EXTRA').sort((a, b) => (a.seq == null ? 1e9 : a.seq) - (b.seq == null ? 1e9 : b.seq));
+  const extras = S.items.filter((x) => !x.deleted && x.kind === 'EXTRA' && !x.linkedTo);
+  const pend = base.filter((x) => x.status === 'PENDING');
+  const g = reviewGroups(), rtypes = RV_ORDER.filter((t) => g[t] && g[t].length);
+  const live = S.scans.filter((s) => !s.cancelled);
+  const times = S.events.map((e) => e.time).concat(live.map((s) => s.time)).filter(Boolean);
+  const start = Math.min(d.createdAt || Infinity, ...(times.length ? times : [Infinity]));
+  const end = d.status === 'CLOSED' && d.closedAt ? d.closedAt : Date.now();
+  const mg = {};
+  base.filter((x) => x.status === 'CONFIRMED').forEach((x) => { const k = E.METHOD[x.method] || x.method || '기타'; mg[k] = (mg[k] || 0) + 1; });
+  return {
+    date: d.date, base: st.base, confirmed: st.confirmed, preTaken: st.preTaken, pending: st.pending, target: st.target, rate: st.rate,
+    extra: extras.filter((x) => !x.early && !x.unchecked).length, early: extras.filter((x) => x.early).length, unchecked: extras.filter((x) => x.unchecked).length,
+    review: rtypes.reduce((n, t) => n + g[t].length, 0), reviewTypes: rtypes.map((t) => ({ t, label: RV[t].label, n: g[t].length })),
+    dup: st.dupScans, photoFail: live.filter((s) => s.photoFail).length, scans: st.scans,
+    start: isFinite(start) ? start : null, end, dur: isFinite(start) ? end - start : 0, methods: mg,
+    pendList: pend.map((x) => ({ seq: x.seq, regNo: x.regNo, name: x.name || '', partial: !!x.partial })),
+    extraList: extras.map((x) => ({ regNo: x.regNo, kind: x.early ? '목록 대기' : x.unchecked ? '없는 번호(확인 전)' : '목록외' })),
+  };
+}
+function handoffText(sm) {
+  const L = [`[등기 미도착 전달] ${dayLabel(sm.date)}`,
+    `기준목록 ${sm.base}건 · 정상확인 ${sm.confirmed} · 사전수령 ${sm.preTaken} · 미도착 ${sm.pending}`];
+  if (sm.pendList.length) { L.push('미도착 번호:'); sm.pendList.forEach((x, i) => L.push(`${i + 1}) ${x.seq != null ? x.seq + '번 ' : ''}${x.regNo || '(번호 없음)'}${x.name ? ' ' + x.name : ''}`)); }
+  else L.push('미도착 없음 — 모두 확인');
+  const etc = [sm.extra + sm.unchecked ? `목록외 송장 ${sm.extra + sm.unchecked}건` : '', sm.early ? `목록 대기 ${sm.early}건` : '', sm.review ? `확인필요 ${sm.review}건` : ''].filter(Boolean);
+  if (etc.length) L.push(etc.join(' · '));
+  return L.join('\n');
+}
+async function copyText(text) {
+  try { if (IN_APP && window.AndroidApp.copyText && window.AndroidApp.copyText(text)) { toast('📋 복사했습니다 — 문자·메신저에 붙여넣으세요', 'ok'); return true; } } catch (e) { /* */ }
+  try { await navigator.clipboard.writeText(text); toast('📋 복사했습니다 — 문자·메신저에 붙여넣으세요', 'ok'); return true; } catch (e) { /* */ }
+  try { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); const ok = document.execCommand('copy'); ta.remove(); if (ok) { toast('📋 복사했습니다', 'ok'); return true; } } catch (e) { /* */ }
+  toast('복사하지 못했습니다 — 글을 길게 눌러 직접 복사하세요', 'warn'); return false;
+}
+async function shareText(title, text) {
+  try { if (IN_APP && window.AndroidApp.shareText) { window.AndroidApp.shareText(title, text); return true; } } catch (e) { /* */ }
+  try { if (navigator.share) { await navigator.share({ title, text }); return true; } } catch (e) { if (e && e.name === 'AbortError') return false; }
+  return copyText(text);
+}
+function reportHTML(sm) {
+  const e = esc, row = (k, v, c) => `<tr><th>${k}</th><td${c ? ` style="color:${c}"` : ''}>${v}</td></tr>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>등기 대조 업무 보고 ${e(sm.date)}</title>
+<style>body{font:15px/1.5 -apple-system,"Malgun Gothic",sans-serif;margin:20px;color:#111}h1{font-size:20px}h2{font-size:16px;margin-top:22px;border-bottom:2px solid #333}table{border-collapse:collapse;width:100%;max-width:720px}th,td{border:1px solid #bbb;padding:5px 8px;text-align:left}th{background:#f2f2f2;width:40%}.m{font-family:Consolas,monospace}small{color:#555}</style></head><body>
+<h1>택배·등기 수령 대조 — 업무 결과 보고</h1><p>업무일 <b>${e(dayLabel(sm.date))}</b> · 작성 ${e(new Date().toLocaleString('ko-KR'))} · v${e(APP_VER)}</p>
+<h2>집계</h2><table>${row('기준목록', sm.base + '건')}${row('정상확인', sm.confirmed + '건', '#15803d')}${row('사전수령', sm.preTaken + '건')}${row('당일 미도착', sm.pending + '건', sm.pending ? '#b91c1c' : '')}${row('확인대상 대비 정상확인', (sm.rate * 100).toFixed(1) + '%')}${row('목록외 송장', (sm.extra + sm.unchecked) + '건' + (sm.unchecked ? ` (확인 전 ${sm.unchecked})` : ''))}${sm.early ? row('목록 대기(먼저 등록)', sm.early + '건') : ''}${row('확인필요', sm.review + '건' + (sm.reviewTypes.length ? ' — ' + sm.reviewTypes.map((x) => `${e(x.label)} ${x.n}`).join(', ') : ''))}${row('중복 처리(같은 송장 다시 찍음)', sm.dup + '건')}${row('사진 저장 누락', sm.photoFail + '건')}${row('촬영·처리 기록', sm.scans + '건')}${row('업무 시간', `${sm.start ? e(hm(sm.start)) : '-'} ~ ${e(hm(sm.end))} (${e(durText(sm.dur))})`)}</table>
+<h2>확인 방법</h2><table>${Object.keys(sm.methods).length ? Object.entries(sm.methods).map(([k, v]) => row(e(k), v + '건')).join('') : row('-', '-')}</table>
+<h2>당일 미도착 ${sm.pending}건</h2>${sm.pendList.length ? `<table><tr><th style="width:12%">순번</th><th>등기번호</th><th>성명</th></tr>${sm.pendList.map((x) => `<tr><td>${x.seq != null ? x.seq : ''}</td><td class="m">${e(x.regNo || '(번호 없음)')}</td><td>${e(x.name)}</td></tr>`).join('')}</table>` : '<p>없음 — 모두 확인</p>'}
+<p><small>미도착은 이 날짜의 업무 결과입니다. 담당자에게 전달하고 마감하며 다음 날 업무로 넘기지 않습니다.</small></p>
+${sm.extraList.length ? `<h2>목록외 송장 ${sm.extraList.length}건</h2><table>${sm.extraList.map((x) => `<tr><td class="m">${e(x.regNo)}</td><td>${e(x.kind)}</td></tr>`).join('')}</table>` : ''}
+</body></html>`;
+}
 function openCloseSheet() {
-  const st = S.st;
+  const sm = closeSummary(), closed = S.day.status === 'CLOSED';
   const warn = [];
-  if (st.review) warn.push(`확인필요 송장 ${st.review}건이 남아 있습니다`);
-  if (st.flagged) warn.push(`목록 번호 확인필요 ${st.flagged}건`);
-  if (S.day.expected && S.day.expected !== st.base) warn.push(`문서 총건수 ${S.day.expected} ≠ 기준목록 ${st.base}`);
-  const pend = S.items.filter((x) => !x.deleted && x.kind !== 'EXTRA' && x.status === 'PENDING').slice(0, 15);
-  const html = `<h2>🏁 업무 마감 — ${dayLabel(S.day.date)}</h2>
-    <table class="table"><tr><th>기준목록</th><td class="n">${st.base}</td></tr><tr><th>사전수령</th><td class="n">${st.preTaken}</td></tr><tr><th>확인대상</th><td class="n">${st.target}</td></tr><tr><th>정상확인</th><td class="n" style="color:var(--ok)">${st.confirmed}</td></tr><tr><th>미도착</th><td class="n" style="color:var(--pend)">${st.pending}</td></tr><tr><th>목록외 추가도착</th><td class="n">${st.extra - st.early}</td></tr>${st.early ? `<tr><th>목록 대기 (먼저 등록)</th><td class="n" style="color:var(--extra)">${st.early}</td></tr>` : ''}<tr><th>중복촬영</th><td class="n">${st.dupScans}</td></tr><tr><th>확인필요</th><td class="n">${st.review}</td></tr><tr><th>진행률</th><td class="n">${st.target ? pct(st.rate) : 0}%</td></tr></table>
-    ${warn.length ? `<div class="banner warn" style="margin-top:12px"><div class="grow">${warn.map(esc).join('<br>')}</div></div>` : ''}
-    ${pend.length ? `<h3>미도착 (${st.pending}건${st.pending > 15 ? ', 앞 15건' : ''})</h3><div class="small mono">${pend.map((it) => `${it.seq != null ? '#' + it.seq + ' ' : ''}${fmtNo(it)} ${esc(it.name || '')}`).join('<br>')}</div>` : ''}
-    <p class="small sub">마감하면 이 날짜는 조회만 가능합니다(필요하면 다시 열 수 있음). 미도착 건이 다음 날 도착하면 <b>지연도착</b>으로 자동 표시됩니다.${st.early ? ` <b>목록 대기 ${st.early}건</b>은 마감해도 남아, ${EARLY_DAYS}일 안에 다른 날짜 등기리스트에 나오면 자동으로 도착 체크됩니다.` : ''}</p>
-    <div class="btns"><button class="btn block" data-act="exportExcel" type="button">📊 결과 엑셀 저장</button><button class="btn warn lg block" data-act="closeDayGo" type="button">🏁 업무 마감</button><button class="btn ghost block" data-act="sheetClose" type="button">취소</button></div>`;
-  openSheet(html);
+  if (sm.review) warn.push(`확인필요 ${sm.review}건이 남아 있습니다 (${sm.reviewTypes.map((x) => x.label + ' ' + x.n).join(', ')})`);
+  if (sm.unchecked) warn.push(`목록에 없는 번호 ${sm.unchecked}건을 아직 확인하지 않았습니다`);
+  if (S.day.expected && S.day.expected !== sm.base) warn.push(`문서 총건수 ${S.day.expected} ≠ 기준목록 ${sm.base}`);
+  if (sm.photoFail) warn.push(`사진 저장 누락 ${sm.photoFail}건 (확인 기록은 저장됨)`);
+  const tr = (k, v, cls) => `<tr><th>${k}</th><td class="n ${cls || ''}">${v}</td></tr>`;
+  const txt = handoffText(sm);
+  const html = `<h2>🏁 업무 마감 — ${dayLabel(S.day.date)}${closed ? ' (마감됨)' : ''}</h2>
+    <table class="table">${tr('기준목록', sm.base)}${tr('정상확인', sm.confirmed, 'ok')}${tr('사전수령', sm.preTaken)}${tr('당일 미도착', sm.pending, sm.pending ? 'pend' : '')}${tr('목록외 송장', sm.extra + sm.unchecked)}${sm.early ? tr('목록 대기', sm.early) : ''}${tr('확인필요', sm.review, sm.review ? 'rev' : '')}${tr('중복 처리', sm.dup)}${tr('사진 저장 누락', `<span id="cl-photo">${sm.photoFail}</span>`)}${tr('업무 시간', `${sm.start ? hm(sm.start) : '-'} ~ ${hm(sm.end)} · ${durText(sm.dur)}`)}</table>
+    ${warn.length ? `<div class="banner warn" style="margin-top:12px"><div class="grow">${warn.map(esc).join('<br>')}</div>${sm.review ? '<button class="btn sm" data-act="closeToReview" type="button">확인필요 보기</button>' : ''}</div>` : ''}
+    <h3>📨 미도착 전달 (${sm.pending}건)</h3>
+    <p class="small sub" style="margin:0 0 6px">미도착은 <b>이 날짜의 업무 결과</b>입니다. 담당자에게 전달하고 마감하면 끝 — 다음 날 업무로 넘어가지 않습니다.${S.day.handoffAt ? ` <b>${hm(S.day.handoffAt)} 전달함</b>` : ''}</p>
+    <textarea class="inp mono" id="cl-text" rows="${Math.min(14, 4 + sm.pendList.length)}" readonly style="width:100%;font-size:13.5px">${esc(txt)}</textarea>
+    <div class="btns two" style="margin-top:8px"><button class="btn pri" data-act="handoffShare" type="button">📤 전달(공유)</button><button class="btn" data-act="handoffCopy" type="button">📋 복사</button></div>
+    <div class="btns two" style="margin-top:8px"><button class="btn" data-act="saveReport" type="button">📄 업무 보고서 저장</button><button class="btn" data-act="exportExcel" type="button">📊 결과 엑셀 저장</button></div>
+    <div class="btns" style="margin-top:12px">${closed ? '<button class="btn block" data-act="reopenDay" type="button">🔓 다시 열기</button>' : '<button class="btn warn lg block" data-act="closeDayGo" type="button">🏁 업무 마감</button>'}<button class="btn ghost block" data-act="sheetClose" type="button">닫기</button></div>`;
+  const el = openSheet(html);
+  // 목록 사진 누락(줄·원본 사진이 기기에 없는 것)도 함께 셈
+  (async () => {
+    const keys = S.items.filter((x) => !x.deleted && x.rowImg).map((x) => x.rowImg).concat(S.docs.filter((x) => !x.deleted && x.scan).map((x) => x.scan));
+    if (!keys.length) return;
+    await ListImg.wait();
+    let miss = 0; for (const k of keys) { const r = await DB.get('blobs', k).catch(() => null); if (!r || !r.blob) miss++; }
+    const c = el.querySelector('#cl-photo'); if (c && miss) c.textContent = `${sm.photoFail} (목록 사진 ${miss})`;
+  })().catch(() => {});
 }
 
 /* ---------------------------------------------------------------- 시트: 날짜 · 설정 */
@@ -7440,6 +7653,7 @@ function openSettings() {
     ${sw('bigAll', '다른 알림도 모두 크게', '등록·사전수령·타택배 저장·저장·취소·경고 등 모든 결과 알림을 큰 창으로')}
     ${sw('failVoice', '판독 실패 → 바로 음성 입력', '번호를 못 읽으면 음성 입력 창이 떠서 말로 바로 확인')}
     ${sw('extraLater', '목록에 없는 번호는 나중에 따로 확인', '촬영 중엔 묻지 않고 "없는 번호"로 저장 → [없는 번호 확인]에서 한꺼번에')}
+    ${sw('lateCarry', '지난 날짜 미도착 조회·지연도착 자동 연결', '끄면(기본·업무 방침) 미도착은 그날 결과로만 남고, 다음 날 같은 번호가 와도 지난 날짜와 연결하지 않습니다(과거자료로 조회만)')}
     ${sw('earlyCarry', '송장 먼저 등록: 지난 날짜 대기분도 이어서 맞춤', '끄면(기본) 먼저 등록한 송장은 등록한 그날 업무에서만 보이고 맞춰집니다. 켜면 14일 안의 다른 날 목록에도 이어서 자동 도착 체크')}
     ${sw('autoExtra', '목록외 번호 자동 등록 (바코드만)', '끄면 목록에 없는 번호마다 확인을 묻습니다')}
     ${sw('nativeBarcode', '기기 내장 바코드 인식 우선 사용')}
@@ -7462,7 +7676,7 @@ function openSettings() {
     ${sw('autoArea', '등기리스트 종이 영역 자동 인식', '끄면(기본) 사진 전체 — 맨 위부터 맨 아래까지 분석합니다. 켜면 종이 네 모서리를 찾아 잘라냅니다')}
     <div class="setrow"><div class="grow">화면 테마</div><select class="inp" id="set-theme" style="width:auto"><option value="dark" ${s.theme !== 'light' ? 'selected' : ''}>다크 (기본)</option><option value="light" ${s.theme === 'light' ? 'selected' : ''}>밝게</option></select></div>
     <h3>이 기기 지원 현황</h3><div class="small sub">${caps.map(esc).join('<br>')}</div>
-    <h3>관리</h3><div class="btns"><button class="btn block" data-act="undo" type="button">↶ 마지막 처리 취소</button><button class="btn block" data-act="exportFixes" type="button">🧾 OCR 정정 기록 내보내기 (테스트용)</button><button class="btn dan block" data-act="wipe" type="button">🗑 모든 자료 삭제</button></div>
+    <h3>관리</h3><div class="btns"><button class="btn block" data-act="undo" type="button">↶ 마지막 처리 취소</button><button class="btn block" data-act="fixStats" type="button">🧾 글자 판독 오류 분석 (OCR 정정 기록)</button><button class="btn dan block" data-act="wipe" type="button">🗑 모든 자료 삭제</button></div>
     <p class="tiny muted">택배·등기 수령 대조 v${APP_VER} · 완전 오프라인 · 외부 전송 없음</p>
     <button class="btn block ghost" data-act="sheetClose" type="button">닫기</button>`;
   openSheet(html);
@@ -8388,13 +8602,18 @@ const ACT = {
   async revIgnore(sid) { const sc = S.scans.find((s) => s.id === sid); if (!sc) return; closeSheet(); await resolveScan(sc, 'IGNORED'); render(); },
   closeDay: () => openCloseSheet(),
   async closeDayGo() {
+    const sm = closeSummary();
+    if (sm.pending && !S.day.handoffAt && !(await confirmBox('미도착 전달 전', `미도착 ${sm.pending}건을 아직 전달(공유·복사)하지 않았습니다. 그래도 마감할까요?`, '그래도 마감'))) return;
     closeSheet();
-    const b = snap(S.day);
     S.day.status = 'CLOSED'; S.day.closedAt = Date.now();
-    await commit([{ store: 'days', value: S.day }], [mkEvent('CLOSE', null, 'OPEN', 'CLOSED')], null);
-    FB.go('ok'); toast('업무를 마감했습니다', 'ok'); render();
-    void b;
+    S.day.closeSummary = { at: S.day.closedAt, base: sm.base, confirmed: sm.confirmed, preTaken: sm.preTaken, pending: sm.pending, extra: sm.extra + sm.unchecked, early: sm.early, review: sm.review, dup: sm.dup, photoFail: sm.photoFail, dur: sm.dur, pendNos: sm.pendList.map((x) => x.regNo) };
+    await commit([{ store: 'days', value: S.day }], [mkEvent('CLOSE', null, 'OPEN', 'CLOSED', { memo: `미도착 ${sm.pending}건으로 마감${S.day.handoffAt ? ' (전달함)' : ''}` })], null);
+    FB.go('ok'); toast(`업무를 마감했습니다 — 미도착 ${sm.pending}건은 이 날짜의 결과로 남습니다`, 'ok', 5000); render();
   },
+  async handoffShare() { const t = ($('#cl-text') || {}).value || handoffText(closeSummary()); if (await shareText(`등기 미도착 ${dayLabel(S.day.date)}`, t)) await markHandoff(); },
+  async handoffCopy() { const t = ($('#cl-text') || {}).value || handoffText(closeSummary()); if (await copyText(t)) await markHandoff(); },
+  async saveReport() { const sm = closeSummary(); await saveFile(`등기대조_업무보고_${S.day.date}.html`, reportHTML(sm), 'text/html'); },
+  closeToReview() { closeSheet(); S.filter = 'rev'; go('result'); },
   async reopenDay() {
     if (!(await confirmBox('다시 열기', `${dayLabel(S.day.date)} 업무를 다시 열어 수정할 수 있게 합니다.`, '다시 열기'))) return;
     S.day.status = 'OPEN'; S.day.closedAt = null;
@@ -8406,6 +8625,16 @@ const ACT = {
   exportCSV: () => exportCSV(),
   print: () => window.print(),
   shareLast() { if (S.lastFile) shareFile(S.lastFile.name, S.lastFile.blob); },
+  async fixStats() {
+    const m = await DB.get('meta', 'ocrFixes').catch(() => null), a = (m && m.v) || [];
+    const fa = fixAnalysis(a);
+    openSheet(`<h2>🧾 글자 판독 오류 분석</h2>
+      <p class="small sub">글자 판독(OCR)으로 읽은 번호를 사람이 고친 기록 ${a.length}건으로, 어떤 숫자를 자주 잘못 읽는지 보여 줍니다. 촬영 요령·조명 개선과 판독 조정에 씁니다.</p>
+      ${a.length ? `<table class="table"><tr><th>정정 기록</th><td class="n">${a.length}</td></tr><tr><th>한 자리만 틀림</th><td class="n">${fa.one}</td></tr><tr><th>두 자리 이상 틀림</th><td class="n">${fa.many}</td></tr><tr><th>못 읽은 자리(?)</th><td class="n">${fa.unread}</td></tr><tr><th>자릿수가 달랐던 것</th><td class="n">${fa.len}</td></tr></table>
+      <h3>자주 헷갈린 숫자 (읽음 → 실제)</h3>${fa.pairs.length ? `<div class="list">${fa.pairs.slice(0, 10).map(([k, n]) => `<div class="item"><div class="grow mono" style="font-size:20px">${esc(k)}</div><b>${n}회</b></div>`).join('')}</div>` : '<p class="small muted">아직 없음</p>'}
+      <h3>자주 틀린 자리 (앞에서 몇 번째)</h3><div class="small mono">${fa.pos.map((n, i) => n ? `${i + 1}번째 ${n}회` : '').filter(Boolean).join(' · ') || '-'}</div>` : '<div class="empty"><div class="i">🧾</div>아직 정정 기록이 없습니다</div>'}
+      <div class="btns" style="margin-top:12px"><button class="btn block" data-act="exportFixes" type="button">기록 내보내기 (JSON)</button><button class="btn ghost block" data-act="sheetClose" type="button">닫기</button></div>`);
+  },
   async exportFixes() {
     const m = await DB.get('meta', 'ocrFixes').catch(() => null), a = (m && m.v) || [];
     if (!a.length) { toast('저장된 정정 기록이 없습니다', 'warn'); return; }
@@ -8413,15 +8642,16 @@ const ACT = {
   },
   async backup(kind) {
     await loadDays();
-    if (kind === 'today') { if (S.day) await backupZip([S.day.date], true); return; }
-    const dates = S.days.map((d) => d.date);
-    if (!dates.length) { toast('백업할 자료가 없습니다', 'warn'); return; }
-    await backupZip(dates, kind === 'all');
+    let dates = [], r = false;
+    if (kind === 'today') { if (!S.day) return; dates = [S.day.date]; r = await backupZip(dates, true); }
+    else { dates = S.days.map((d) => d.date); if (!dates.length) { toast('백업할 자료가 없습니다', 'warn'); return; } r = await backupZip(dates, kind === 'all'); }
+    // 1.0.25 백업 상태: 마지막으로 백업한 때·종류를 기억해 홈·과거자료에 표시
+    if (r) { S.lastBackup = { at: Date.now(), kind, days: dates.length }; await persist([{ store: 'meta', value: { k: 'lastBackup', v: S.lastBackup } }], true); if (S.tab === 'home' || S.tab === 'history') render(); }
   },
   restore() { $('#f-zip').click(); },
   async viewPhoto(key) { const u = await blobURL(key); if (!u) { toast('사진이 없습니다', 'warn'); return; } openSheet(`<img src="${u}" alt="사진" style="width:100%;border-radius:10px;background:#111"><button class="btn block ghost" style="margin-top:10px" data-act="sheetClose" type="button">닫기</button>`, { full: true }); },
   settings: () => openSettings(),
-  async setToggle(k) { S.settings[k] = !S.settings[k]; await saveSettings(); if (k === 'kbLift') { applyViewportMeta(); KB.update(); } if (k === 'voiceCont' && !S.settings.voiceCont) Voice.stop(); if (k === 'earlyCarry' && S.day) { await loadPastPending(); render(); } const b = document.querySelector(`[data-act="setToggle"][data-arg="${k}"]`); if (b) b.classList.toggle('on', !!S.settings[k]); if (k === 'nativeBarcode' && Cam.ok) Cam.initDetector(); if (k === 'keepAwake' && !S.settings.keepAwake) Wake.off(); updateScanUI(); },
+  async setToggle(k) { S.settings[k] = !S.settings[k]; await saveSettings(); if (k === 'kbLift') { applyViewportMeta(); KB.update(); } if (k === 'voiceCont' && !S.settings.voiceCont) Voice.stop(); if ((k === 'earlyCarry' || k === 'lateCarry') && S.day) { await loadPastPending(); render(); } const b = document.querySelector(`[data-act="setToggle"][data-arg="${k}"]`); if (b) b.classList.toggle('on', !!S.settings[k]); if (k === 'nativeBarcode' && Cam.ok) Cam.initDetector(); if (k === 'keepAwake' && !S.settings.keepAwake) Wake.off(); updateScanUI(); },
   async wipe() {
     if (!(await confirmBox('모든 자료 삭제', '이 기기에 저장된 모든 업무일·목록·사진이 삭제됩니다. 먼저 백업하세요.', '삭제', true))) return;
     if (!(await confirmBox('정말 삭제할까요?', '되돌릴 수 없습니다.', '모두 삭제', true))) return;
@@ -8561,13 +8791,14 @@ Object.assign(ACT, {
 });
 
 /* ---------------------------------------------------------------- 이벤트 연결 */
+window.addEventListener('unhandledrejection', (e) => { if (e.reason && e.reason.name === 'SaveError') e.preventDefault(); });
 document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-act]');
   if (!el) return;
   const fn = ACT[el.getAttribute('data-act')];
   if (!fn) return;
   e.preventDefault();
-  try { await fn(el.getAttribute('data-arg'), el, e); } catch (err) { toast('오류: ' + (err && err.message ? err.message : err), 'err', 5000); console.error(err); }
+  try { await fn(el.getAttribute('data-arg'), el, e); } catch (err) { if (err && err.name === 'SaveError') return; /* 저장 실패는 이미 알림·되돌림 */ toast('오류: ' + (err && err.message ? err.message : err), 'err', 5000); console.error(err); }
 });
 ['pointerdown', 'mousedown'].forEach((ev) => document.addEventListener(ev, (e) => { if (e.target.closest && e.target.closest('.keepfocus, .qc')) e.preventDefault(); }));
 document.addEventListener('click', (e) => {
@@ -8732,7 +8963,8 @@ setInterval(() => {
   else {
     const last = await DB.get('meta', 'lastDay').catch(() => null);
     const ld = last && S.days.find((d) => d.date === last.v);
-    if (ld && ld.status !== 'CLOSED') { await openDay(ld.date); showBanner('info', `마지막 작업일 <b>${dayLabel(ld.date)}</b>이 열려 있습니다 (마감 안 됨).`, 'rollover', [{ label: '오늘 업무 시작', act: 'startToday', cls: 'pri' }]); }
+    // 1.0.25: 지난 날짜(마감 안 됨)를 저절로 열지 않음 — 미도착은 그날 결과로 마감하고 오늘은 새로 시작
+    void ld; // 홈의 시작 카드가 '마감 안 된 날 — 열어서 마감' 을 보여 줌
   }
   await initSync();
   if (CH) CH.postMessage({ t: 'hello', from: TAB_ID });
