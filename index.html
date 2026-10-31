@@ -116,7 +116,20 @@ h3{font-size:15px;margin:14px 2px 8px;color:var(--sub);font-weight:700}
 .stat.zero{opacity:.55}
 .prog{height:12px;border-radius:6px;background:var(--card3);overflow:hidden;display:flex}
 .prog i{display:block;height:100%}
-.prog .a{background:var(--ok)}.prog .b{background:var(--pre)}
+.prog .a{background:var(--ok)}.prog .b{background:var(--pre)}.prog .c{background:rgba(239,68,68,.55)}
+.dleg{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12.5px;color:var(--sub)}.dleg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+.dash2{margin-top:10px}.dash2 .ttl{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline}
+.dmap{display:grid;grid-template-columns:repeat(auto-fill,minmax(34px,1fr));gap:4px;max-height:236px;overflow-y:auto;margin:6px 0 10px}
+.dm{height:30px;border-radius:7px;border:1px solid transparent;font:800 12px/1 var(--mono);padding:0;color:#fff}
+.dm-ok{background:#15803d}.dm-pre{background:#a16207}.dm-pend{background:#7f1d1d;border-color:#ef4444;color:#fecaca}
+.dm-flag{box-shadow:inset 0 0 0 2px #fb923c}
+.dgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.dgrid>div{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.dgrid .w2{grid-column:1/-1}.dgrid .l{font-size:12px;color:var(--muted)}.dgrid .v{font-size:22px;font-weight:850}.dgrid .v small{font-size:12px;font-weight:700;color:var(--sub);margin-left:3px}
+.dgrid .s{font-size:12px;color:var(--sub)}.dgrid .s2{font-size:13.5px;color:var(--sub);margin-top:2px}.dgrid .s2 b{color:var(--text)}
+.agrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+.atile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:84px;padding:8px 4px;border-radius:12px;background:var(--card);border:1px solid var(--line2);color:var(--text);text-align:center}
+.atile .i{font-size:24px;line-height:1.1}.atile b{font-size:14px}.atile span:last-child:not(.i){font-size:11.5px;color:var(--muted)}
+.atile.mk{border-color:#1d4ed8;background:#0b1530}.atile.pd{border-color:var(--pend)}.atile.off{opacity:.55}
 .bigpct{font-size:40px;font-weight:850;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1}
 
 /* 상태 배지 */
@@ -298,6 +311,13 @@ select.inp{appearance:none}
 .lm-legend{gap:12px;font-size:13px;margin:6px 0 2px;align-items:center}.lm-legend span{display:inline-flex;align-items:center;gap:4px}
 .lm-dot{display:inline-block;width:12px;height:12px;border-radius:50%}
 .lm .vw-img{background:#fff}
+.bsrow .bsv{color:var(--accent);margin-left:6px}.bsctl{display:flex;align-items:center;gap:8px;margin-top:8px}.bsctl input[type=range]{flex:1;height:32px;accent-color:var(--accent)}
+.bspre{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.lm-mode{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin:0 0 6px;padding:3px;background:var(--card);border:1px solid var(--line2);border-radius:12px}
+.lm-mode button{border:0;border-radius:9px;padding:9px 4px;font-weight:800;font-size:14px;background:transparent;color:var(--sub)}
+.lm-mode button.on{background:var(--accent);color:#001018}
+.lm-mode button[data-lmm="pre"].on{background:#9333ea;color:#fff}.lm-mode button[data-lmm="ok"].on{background:#1d4ed8;color:#fff}
+#lm-info{display:flex;flex-direction:column;gap:6px}.lm-acts{display:flex;gap:6px;flex-wrap:wrap}.lm-acts .btn{flex:1 1 auto}
 .lmbtn{margin:0 0 12px;gap:8px;flex-wrap:wrap}.lmbtn .lm-r,.lmbtn .lm-b{font-size:12px;font-weight:800;padding:2px 8px;border-radius:99px;color:#fff}
 .lmbtn .lm-r{background:#dc2626}.lmbtn .lm-b{background:#1d4ed8}
 .vw-panel{flex:0 0 auto;max-height:46%;overflow-y:auto;padding-bottom:6px}
@@ -3666,7 +3686,7 @@ window.PC_MODEL_CELL={"G": 20, "B": 16, "K": 4, "classes": 11, "layers": [{"in":
    =================================================================== */
 'use strict';
 const E = window.PCEngine, V = window.PCVision, BC = window.PCBarcode, F = window.PCFile;
-const APP_VER = '1.0.23';
+const APP_VER = '1.0.24';
 const MODEL = window.PC_MODEL ? V.loadModel(window.PC_MODEL) : null;
 const MODEL_CELL = window.PC_MODEL_CELL ? V.loadModel(window.PC_MODEL_CELL) : null; // 13칸 읽기 전용(붙은 숫자 칸) — tools/train_cell.py
 
@@ -4686,10 +4706,11 @@ function updateScanUI() {
   $('#scan-mode').textContent = S.settings.cont ? '연속 ON' : '연속 OFF';
 }
 /* 큰 창이 떠 있는 시간(1.0.22): 설정 bigSec 초(0 = 결과마다 기본 시간) */
+let BIG_QUIET = 0; // 등기리스트 원본 ✔ 화면에서 누를 때: 색이 바로 바뀌므로 큰 창은 띄우지 않음(사진을 가리지 않게)
 function bigMs(ms) { const s = +(S.settings.bigSec || 0); return s > 0 ? Math.round(s * 1000) : ms; }
 /* 화면 가운데 큰 결과(1.0.17): 확인·중복·없는 번호·실패를 큰 글씨로 잠깐(누르지 않아도 사라지고, 뒤 화면을 막지 않음) */
 function showBig(kind, title, big, sub, ms) {
-  if (S.settings.bigResult === false) return;
+  if (S.settings.bigResult === false || BIG_QUIET) return;
   let el = document.getElementById('bigres');
   if (!el) { el = document.createElement('div'); el.id = 'bigres'; el.className = 'bigres'; el.setAttribute('aria-live', 'assertive'); document.body.appendChild(el); }
   el.className = 'bigres on k-' + kind;
@@ -4724,7 +4745,7 @@ const BigRead = { v: null };
 function bigRead(number, method, raw) { BigRead.v = number == null && !raw ? null : { number: E.digits(number || ''), method: method || '', raw: String(raw || ''), at: Date.now() }; }
 function takeRead() { const r = BigRead.v; BigRead.v = null; return r && Date.now() - r.at < 120000 ? r : null; }
 function showCheck(kind, title, it, rd, verdict, ms) {
-  if (S.settings.bigResult === false) return;
+  if (S.settings.bigResult === false || BIG_QUIET) return;
   let el = document.getElementById('bigres');
   if (!el) { el = document.createElement('div'); el.id = 'bigres'; el.className = 'bigres'; el.setAttribute('aria-live', 'assertive'); document.body.appendChild(el); }
   el.className = 'bigres on k-' + kind;
@@ -6559,27 +6580,55 @@ function vHome() {
     <div class="btns two"><button class="btn ${noList ? 'pri' : ''}" data-act="earlyScan" type="button">📷 송장 ${wT ? '계속' : '먼저'} 등록</button><button class="btn ${wT + wP ? 'pri' : ''}" data-act="go" data-arg="list" type="button">📋 등기리스트 등록</button></div>
     ${wT ? `<button class="btn block ghost sm" style="margin-top:8px" data-act="filter" data-arg="early" type="button">목록 대기 송장 보기 (${wT}건)</button>` : ''}
     ${hasList() ? `<label class="row small" style="margin-top:10px;gap:8px"><input type="checkbox" data-act="earlyToggle" ${S.day.earlyMode ? 'checked' : ''}> 목록에 없는 번호도 묻지 않고 '목록 대기'로 저장 (목록을 나눠 등록할 때)</label>` : ''}</div>` : '';
+  /* 1.0.24 대시보드: 위에 현황(진행률·상태 칸·순번 지도·속도·확인 방법), 아래에 업무 단추를 묶음별로 한 번씩만 */
+  const baseS = S.items.filter((x) => x.kind !== 'EXTRA' && !x.deleted).sort((a, b) => (a.seq == null ? 1e9 : a.seq) - (b.seq == null ? 1e9 : b.seq));
+  const conf = baseS.filter((x) => x.status === 'CONFIRMED');
+  const mg = { bar: 0, ocr: 0, hand: 0, list: 0, early: 0 };
+  conf.forEach((x) => { const m = x.method || ''; if (m === 'BARCODE') mg.bar++; else if (/OCR/.test(m)) mg.ocr++; else if (m === 'CHECKBOX') mg.list++; else if (m === 'EARLY' || x.viaEarly) mg.early++; else mg.hand++; });
+  const ts = conf.map((x) => x.confirmedAt).filter(Boolean).sort((a, b) => a - b), now = Date.now();
+  const last = ts.length ? ts[ts.length - 1] : 0, recent30 = ts.filter((t) => now - t < 30 * 60000).length;
+  const span = ts.length > 1 ? (last - ts[0]) / 60000 : 0, rate = span >= 2 ? ts.length / span : 0;
+  const eta = rate > 0 && st.pending ? Math.ceil(st.pending / rate) : 0;
+  const dm = (x) => x.status === 'CONFIRMED' ? 'ok' : x.status === 'PRE_TAKEN' ? 'pre' : 'pend';
+  const dmap = baseS.length ? `<div class="dmap">${baseS.map((x) => `<button class="dm dm-${dm(x)}${x.needsCheck ? ' dm-flag' : ''}" data-act="item" data-arg="${esc(x.id)}" type="button" title="${x.seq != null ? x.seq + '번 ' : ''}${esc(x.name || '')}">${x.seq != null ? x.seq : '·'}</button>`).join('')}</div>` : '';
+  const pend = st.base ? (st.pending / st.base) * 100 : 0;
+  const md = markDocs();
+  const tile = (act, arg, icon, label, sub, cls) => `<button class="atile ${cls || ''}" data-act="${act}" ${arg ? `data-arg="${arg}"` : ''} type="button"><span class="i">${icon}</span><b>${label}</b>${sub ? `<span>${sub}</span>` : ''}</button>`;
   return `${closed ? `<div class="banner"><div class="grow">🏁 <b>마감된 업무</b> (${d.closedAt ? hm(d.closedAt) : ''}) — 조회만 가능합니다.</div><button class="btn sm" data-act="reopenDay" type="button">다시 열기</button></div>` : ''}
   ${!isToday() && !closed ? `<div class="banner warn"><div class="grow">지금 보고 있는 날짜는 <b>${dayLabel(d.date)}</b>입니다 (오늘 아님).</div><button class="btn sm" data-act="startToday" type="button">오늘로</button></div>` : ''}
-  <div class="card hl">
+  <div class="card hl dash">
     <div class="row"><div class="grow"><div class="small sub">확인대상 대비 정상확인</div><div class="bigpct">${st.target ? pct(st.rate) : '0'}<span style="font-size:22px">%</span></div></div>
     <div class="right" style="text-align:right"><div class="small sub">남은 미도착</div><div style="font-size:30px;font-weight:850;color:${st.pending ? 'var(--pend)' : 'var(--ok)'}">${st.pending}<span class="small muted"> 건</span></div></div></div>
-    <div class="prog" style="margin:10px 0 4px"><i class="a" style="width:${st.base ? (st.confirmed / st.base) * 100 : 0}%"></i><i class="b" style="width:${st.base ? (st.preTaken / st.base) * 100 : 0}%"></i></div>
-    <div class="tiny muted">미도착 = 기준목록 ${st.base} − 사전수령 ${st.preTaken} − 정상확인 ${st.confirmed} · 목록외 추가는 기준 건수에 넣지 않음</div>
+    <div class="prog dprog" style="margin:10px 0 6px"><i class="a" style="width:${st.base ? (st.confirmed / st.base) * 100 : 0}%"></i><i class="b" style="width:${st.base ? (st.preTaken / st.base) * 100 : 0}%"></i><i class="c" style="width:${pend}%"></i></div>
+    <div class="dleg"><span><i style="background:var(--ok)"></i>정상확인 ${st.confirmed}</span><span><i style="background:var(--pre)"></i>사전수령 ${st.preTaken}</span><span><i style="background:var(--pend)"></i>미도착 ${st.pending}</span><span class="muted">기준 ${st.base}</span></div>
   </div>
-  ${(() => { const md = markDocs(); if (!md.length) return ''; const n = markCounts(null); return `<button class="btn block lmbtn" data-act="listMarks" type="button">✔ 등기리스트 원본에서 보기 <span class="lm-r">미도착 ${n.pend}</span><span class="lm-b">확인 ${n.ok}</span></button>`; })()}
   <div class="stats">${box('', '기준목록', st.base, 'base', '📋')}${box('ok', '정상확인', st.confirmed, 'ok', '✅')}${box('pend', '미도착', st.pending, 'pend', '⚠')}${box('pre', '사전수령', st.preTaken, 'pre', '📦')}${st.early ? box('extra', '목록 대기', st.early, 'early', '📦') : box('extra', '목록외 추가', st.extra, 'extra', '➕')}${box('rev', '확인필요', st.review + st.flagged, 'rev', '❗')}</div>
-  <div class="row small muted" style="margin:6px 2px 12px;gap:14px"><span>확인대상 ${st.target}</span>${st.early && st.extra > st.early ? `<span>목록외 ${st.extra - st.early}</span>` : ''}<span>중복촬영 ${st.dupScans}</span>${st.late ? `<span>지연도착 ${st.late}</span>` : ''}<span>촬영 ${st.scans}</span></div>
+  ${baseS.length ? `<div class="card dash2"><div class="ttl">🗺 순번별 현황 <span class="tiny muted" style="font-weight:600">칸을 누르면 그 건 — 초록 정상·노랑 사전·빨강 미도착</span></div>${dmap}
+    <div class="dgrid">
+      <div><div class="l">확인 속도</div><div class="v">${rate ? rate.toFixed(1) + '<small>건/분</small>' : '—'}</div><div class="s">최근 30분 ${recent30}건</div></div>
+      <div><div class="l">마지막 확인</div><div class="v">${last ? hm(last) : '—'}</div><div class="s">${eta ? `이 속도면 약 ${eta}분 남음` : st.pending ? '' : '모두 확인'}</div></div>
+      <div class="w2"><div class="l">확인 방법</div><div class="s2">바코드 <b>${mg.bar}</b> · 글자 판독 <b>${mg.ocr}</b> · 번호 입력 <b>${mg.hand}</b> · 목록·사진 체크 <b>${mg.list}</b>${mg.early ? ` · 먼저 등록 <b>${mg.early}</b>` : ''}</div></div>
+      <div class="w2"><div class="l">촬영·기타</div><div class="s2">확인대상 ${st.target} · 촬영 ${st.scans} · 중복촬영 ${st.dupScans}${st.early && st.extra > st.early ? ` · 목록외 ${st.extra - st.early}` : ''}${st.late ? ` · 지연도착 ${st.late}` : ''}${d.expected ? ` · 문서 총건수 ${d.expected}` : ''}</div></div>
+    </div></div>` : ''}
+  ${att.length ? `<h3>❗ 확인할 일</h3><div class="list">${att.join('')}</div>` : ''}
   ${nolistCard}${earlyCard}
-  ${closed ? '' : `<div class="btns" style="margin-bottom:12px"><button class="btn pri lg block" data-act="openScanner" type="button">📷 ${noList ? '송장 먼저 등록 (연속 촬영)' : '송장 확인 시작 (연속 촬영)'}</button>
-  <div class="btns two"><button class="btn" data-act="go" data-arg="list" type="button">📋 등기리스트 등록</button><button class="btn" data-act="pre" type="button">📦 사전수령 체크</button></div>
-  <div class="btns two"><button class="btn" data-act="manual" type="button">⌨ 번호·끝자리 입력</button><button class="btn" data-act="filter" data-arg="pend" type="button">⚠ 미도착 보기</button></div></div>`}
-  <div class="btns two" style="margin-bottom:12px"><button class="btn" data-act="others" type="button">📦 타택배 인계 사진</button><button class="btn pri" data-act="quick" type="button">⚡ 연속 촬영 (30장)</button></div>
+  <h3>▶ 업무</h3>
+  ${closed ? '' : `<button class="btn pri lg block" style="margin-bottom:8px" data-act="openScanner" type="button">📷 ${noList ? '송장 먼저 등록 (연속 촬영)' : '송장 확인 시작 (연속 촬영)'}</button>`}
+  <div class="agrid">
+    ${closed ? '' : tile('go', 'list', '📋', '등기리스트', '등록·문서')}
+    ${tile('listMarks', '', '✔', '원본 사진 체크', md.length ? `미도착 ${markCounts(null).pend}` : '사진 목록 없음', md.length ? 'mk' : 'off')}
+    ${closed ? '' : tile('pre', '', '📦', '사전수령', '체크·해제')}
+    ${closed ? '' : tile('manual', '', '⌨', '번호 입력', '번호·끝자리')}
+    ${tile('go', 'result', '🔎', '결과·검색', '전체 목록')}
+    ${tile('filter', 'pend', '⚠', '미도착', st.pending + '건', st.pending ? 'pd' : '')}
+  </div>
+  <h3>📦 타택배 인계</h3>
+  <div class="btns two" style="margin-bottom:12px"><button class="btn" data-act="others" type="button">📦 등록·조회</button><button class="btn pri" data-act="quick" type="button">⚡ 연속 촬영 (30장)</button></div>
   ${syncCard()}
-  ${att.length ? `<h3>확인할 일</h3><div class="list">${att.join('')}</div>` : ''}
+  <h3>🏁 마무리</h3>
+  <div class="btns two">${closed ? `<button class="btn" data-act="exportExcel" type="button">📊 엑셀 저장</button><button class="btn" data-act="reopenDay" type="button">🔓 다시 열기</button>` : `<button class="btn" data-act="exportExcel" type="button">📊 엑셀 저장</button><button class="btn warn" data-act="closeDay" type="button">🏁 업무 마감</button>`}</div>
   ${S.undo.length && !closed ? `<button class="btn block ghost" style="margin-top:12px" data-act="undo" type="button">↶ 마지막 처리 취소 — ${esc(S.undo[S.undo.length - 1].label)}</button>` : ''}
-  ${recent ? `<h3>최근 처리</h3><div class="card tight">${recent}</div>` : ''}
-  <div class="btns two" style="margin-top:12px">${closed ? `<button class="btn" data-act="exportExcel" type="button">📊 엑셀 저장</button><button class="btn" data-act="reopenDay" type="button">🔓 다시 열기</button>` : `<button class="btn" data-act="exportExcel" type="button">📊 엑셀 저장</button><button class="btn warn" data-act="closeDay" type="button">🏁 업무 마감</button>`}</div>`;
+  ${recent ? `<h3>최근 처리</h3><div class="card tight">${recent}</div>` : ''}`;
 }
 function evText(e) {
   const no = e.regNo ? `<span class="mono">${esc(E.tail(e.regNo, 5))}</span> ` : '';
@@ -6957,16 +7006,17 @@ async function openListMarks(docId, focusId) {
     <div class="row wrap lm-legend"><span><i class="lm-dot" style="background:${MARK_COL.pend}"></i>미도착 <b id="lm-pend"></b></span><span><i class="lm-dot" style="background:${MARK_COL.ok}"></i>확인 <b id="lm-ok"></b></span><span id="lm-prew"><i class="lm-dot" style="background:${MARK_COL.pre}"></i>사전수령 <b id="lm-pre"></b></span><span class="grow"></span><span class="mono" id="lm-pct"></span></div>
     <div class="prog" style="margin:4px 0 6px"><i class="a" id="lm-bar" style="width:0"></i></div>
     <div class="row" style="gap:6px;margin:0 0 6px">${docs.length > 1 ? `<select class="inp" id="lm-doc" style="width:auto;flex:1 1 auto">${docs.map((d, i) => `<option value="${esc(d.id)}" ${d === doc ? 'selected' : ''}>${i + 1}장 · ${d.type === 'PART' ? '부분 촬영' : 'A4 촬영'} · ${hm(d.time)}</option>`).join('')}</select>` : '<span class="grow"></span>'}<button class="chip" data-lm="miss" type="button">빠진 것만</button><button class="chip" data-lmz="-1" type="button">－</button><span class="small mono" id="lm-z">100%</span><button class="chip" data-lmz="1" type="button">＋</button></div>
+    ${readOnly() ? '' : `<div class="lm-mode" id="lm-mode"><button class="on" data-lmm="view" type="button">👆 보기</button><button data-lmm="ok" type="button">✅ 수령확인</button><button data-lmm="pre" type="button">📦 사전수령</button></div>`}
     <div class="vw-img" id="lm-img"><div class="empty" id="lm-wait"><div class="i">⏳</div>사진 불러오는 중…</div><canvas id="lm-c" class="hidden"></canvas></div>
-    <div class="tiny muted" id="lm-info" style="min-height:2.6em;padding:6px 2px 0">빨간 ✔ = 아직 송장 확인 안 됨, 파란 ✔ = 송장으로 확인됨. 표시가 아예 없는 줄은 목록에 등록되지 않은 줄(인식 못함)이니 실제 문서와 비교하세요. 표시를 누르면 그 줄 정보가 나옵니다.</div></div>`, { full: true, onClose: () => { LM.redraw = null; LM.place = null; } });
+    <div class="tiny muted" id="lm-info" style="min-height:2.6em;padding:6px 2px 0">빨간 ✔ = 미도착, 파란 ✔ = 수령확인, 보라 ✔ = 사전수령. 표시가 아예 없는 줄은 목록에 등록되지 않은 줄(인식 못함). ✔ 를 누르면 그 줄 정보와 체크·해제 버튼이 나옵니다.</div></div>`, { full: true, onClose: () => { LM.redraw = null; LM.place = null; LM.act = null; render(); } });
   const cv = el.querySelector('#lm-c'), box = el.querySelector('#lm-img'), info = el.querySelector('#lm-info');
   const Z = [1, 1.5, 2, 3, 4];
-  let zi = 0, img = null, k = 1, missOnly = false, sel = focusId || null, raf = 0;
+  let zi = 0, img = null, k = 1, missOnly = false, sel = focusId || null, raf = 0, mode = 'view';
+  const MODE_HINT = { view: '✔ 를 누르면 그 줄 정보와 체크·해제 버튼이 나옵니다.', ok: '✅ 수령확인 모드: 빨간 ✔ 를 누르면 바로 수령확인(파랑), 파란 ✔ 를 누르면 확인 해제.', pre: '📦 사전수령 모드: 빨간 ✔ 를 누르면 바로 사전수령(보라), 보라 ✔ 를 누르면 사전수령 해제.' };
   const items = () => S.items.filter((it) => !it.deleted && it.kind !== 'EXTRA' && it.box && it.docId === doc.id);
   const counts = () => {
     const n = markCounts(doc.id), tot = markCounts(null);
     el.querySelector('#lm-pend').textContent = n.pend; el.querySelector('#lm-ok').textContent = n.ok; el.querySelector('#lm-pre').textContent = n.pre;
-    el.querySelector('#lm-prew').style.display = n.pre ? '' : 'none';
     const t = Math.max(1, tot.all - tot.pre);
     el.querySelector('#lm-pct').textContent = `전체 ${tot.ok}/${tot.all - tot.pre} · ${Math.round((tot.ok / t) * 100)}%`;
     el.querySelector('#lm-bar').style.width = (tot.ok / t) * 100 + '%';
@@ -7014,7 +7064,10 @@ async function openListMarks(docId, focusId) {
     const it = sel && S.items.find((x) => x.id === sel);
     if (!it || it.docId !== doc.id) { return; }
     const kd = markKind(it), lab = { ok: '✅ 송장 확인됨', pend: '⚠ 미도착 — 아직 송장 확인 안 됨', pre: '📦 사전수령' }[kd];
-    info.innerHTML = `<div class="row" style="gap:8px"><div class="grow"><b style="color:${MARK_COL[kd]}">${lab}</b><div>${it.seq != null ? `<b>${it.seq}번</b> ` : ''}<span class="mono">${it.regNo ? fmtNo(it) : '(번호 없음)'}</span> ${esc(it.name || '')}</div></div>${kd === 'pend' && !readOnly() ? `<button class="btn sm pri" data-lmact="ok" type="button">✅ 도착 체크</button>` : ''}<button class="btn sm" data-lmact="item" type="button">상세</button></div>`;
+    const ro = readOnly();
+    const btns = ro ? '' : kd === 'pend' ? '<button class="btn sm pri" data-lmact="ok" type="button">✅ 수령확인</button><button class="btn sm" data-lmact="pre" type="button">📦 사전수령</button>'
+      : kd === 'ok' ? '<button class="btn sm warn" data-lmact="unok" type="button">↩ 수령확인 해제</button>' : '<button class="btn sm warn" data-lmact="unpre" type="button">↩ 사전수령 해제</button>';
+    info.innerHTML = `<div class="grow"><b style="color:${MARK_COL[kd]}">${lab}</b> · ${it.seq != null ? `<b>${it.seq}번</b> ` : ''}<span class="mono">${it.regNo ? fmtNo(it) : '(번호 없음)'}</span> ${esc(it.name || '')}</div><div class="lm-acts">${btns}<button class="btn sm" data-lmact="item" type="button">상세</button></div>`;
   };
   const load = async () => {
     img = null; cv.classList.add('hidden'); el.querySelector('#lm-wait').classList.remove('hidden');
@@ -7037,12 +7090,44 @@ async function openListMarks(docId, focusId) {
   if (docSel) docSel.addEventListener('change', () => { doc = docs.find((d) => d.id === docSel.value) || doc; sel = null; info.textContent = '표시를 누르면 그 줄 정보가 나옵니다.'; setZoom(0); load(); });
   el.querySelector('[data-lm="miss"]').addEventListener('click', (e) => { missOnly = !missOnly; e.currentTarget.classList.toggle('on', missOnly); draw(); });
   el.querySelectorAll('[data-lmz]').forEach((b) => b.addEventListener('click', () => setZoom(zi + +b.getAttribute('data-lmz'))));
+  /* 원본 사진에서 바로: 수령확인·해제, 사전수령·해제 (해제는 한 번 더 묻기) */
+  const act = async (it, what) => { BIG_QUIET++; try { await act0(it, what); } finally { BIG_QUIET--; } };
+  const act0 = async (it, what) => {
+    if (readOnly()) { toast('마감된 날짜입니다. [다시 열기] 후 체크하세요.', 'warn'); return; }
+    const lab = rowLabel(it);
+    if (what === 'ok') {
+      if (it.status === 'PENDING') await rowCheck(it);
+      else if (it.status === 'PRE_TAKEN') toast(`사전수령한 건입니다 — 먼저 사전수령 해제 · ${lab}`, 'warn');
+      else return act0(it, 'unok');
+    } else if (what === 'unok') {
+      if (it.status !== 'CONFIRMED') return;
+      if (!(await confirmBox('수령확인 해제', `${esc(lab)} 건의 수령확인을 취소하고 미도착으로 되돌립니다.`, '확인 해제', true))) return;
+      await unconfirm(it, '원본 사진에서 해제'); FB.go('info'); toast(`↩ 수령확인 해제 · ${lab}`, '', 2600, { label: '취소', act: 'undo' });
+    } else if (what === 'pre') {
+      if (it.status === 'PENDING') { await setPreTaken(it, true); FB.go('ok'); toast(`📦 사전수령 · ${lab}`, 'ok', 2600, { label: '취소', act: 'undo' }); }
+      else if (it.status === 'CONFIRMED') toast(`이미 수령확인된 건입니다 — 먼저 수령확인 해제 · ${lab}`, 'warn');
+      else return act0(it, 'unpre');
+    } else if (what === 'unpre') {
+      if (it.status !== 'PRE_TAKEN') return;
+      if (!(await confirmBox('사전수령 해제', `${esc(lab)} 건의 사전수령을 취소하고 미도착으로 되돌립니다.`, '사전수령 해제', true))) return;
+      await setPreTaken(it, false); FB.go('info'); toast(`↩ 사전수령 해제 · ${lab}`, '', 2600, { label: '취소', act: 'undo' });
+    }
+    refreshItemViews([it.id]); redraw();
+  };
+  LM.act = (id, what) => { const it = S.items.find((x) => x.id === id); return it ? act(it, what) : null; }; // 시험용
   info.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-lmact]'); if (!b) return;
     const it = S.items.find((x) => x.id === sel); if (!it) return;
-    if (b.getAttribute('data-lmact') === 'item') { openItem(it.id); return; }
-    if (it.status === 'PENDING') { await rowCheck(it); redraw(); }
+    const w = b.getAttribute('data-lmact');
+    if (w === 'item') { openItem(it.id); return; }
+    await act(it, w);
   });
+  el.querySelectorAll('[data-lmm]').forEach((b) => b.addEventListener('click', () => {
+    mode = b.getAttribute('data-lmm');
+    el.querySelectorAll('[data-lmm]').forEach((x) => x.classList.toggle('on', x === b));
+    if (mode !== 'view') { sel = null; info.textContent = MODE_HINT[mode]; } else info.textContent = MODE_HINT.view;
+    draw();
+  }));
   cv.addEventListener('click', (e) => {
     if (!img) return;
     const r = cv.getBoundingClientRect(), px = ((e.clientX - r.left) / r.width) * cv.width, py = ((e.clientY - r.top) / r.height) * cv.height;
@@ -7053,7 +7138,10 @@ async function openListMarks(docId, focusId) {
       const dx = px < x0 ? x0 - px : px > x1 ? px - x1 : 0, dy = py < y0 ? y0 - py : py > y1 ? py - y1 : 0, d = Math.hypot(dx, dy);
       if (d < bd) { bd = d; best = it; }
     });
-    if (best && bd < Math.max(24, cv.width / 60)) { sel = best.id; FB.go('info'); draw(); showInfo(); }
+    if (!best || bd >= Math.max(24, cv.width / 60)) return;
+    sel = best.id;
+    if (mode === 'view') { FB.go('info'); draw(); showInfo(); return; }
+    act(best, mode).then(() => { draw(); showInfo(); });
   });
   // 두 손가락으로 벌리고 오므리면 확대·축소
   const pts = new Map(); let two = null;
@@ -7323,6 +7411,19 @@ function openDayMenu() {
     <button class="btn block ghost" data-act="sheetClose" type="button">닫기</button>`;
   openSheet(html);
 }
+/* 큰 창 시간(1.0.24): 0 = 기본(결과마다), 0.5~10초 0.1초 단위 */
+function bigSecLabel(v) { return +v > 0 ? (+v).toFixed(1) + '초' : '기본'; }
+async function setBigSec(v) {
+  v = +v > 0 ? Math.round(Math.min(10, Math.max(0.5, +v)) * 10) / 10 : 0;
+  S.settings.bigSec = v; await saveSettings();
+  const row = document.querySelector('.bsrow');
+  if (row) {
+    row.querySelector('.bsv').textContent = bigSecLabel(v);
+    const r = row.querySelector('#set-bigsec'); if (r) r.value = v || 2.4;
+    row.querySelectorAll('.bspre .chip').forEach((c) => { const a = c.getAttribute('data-arg'); c.classList.toggle('on', a === 'def' ? !v : +a === v); });
+  }
+  showBig('ok', '큰 창 시간 확인', bigSecLabel(v), v ? '이 창이 이 시간 동안 떠 있습니다' : '결과마다 알맞은 시간(확인 2.4초)', 2400);
+}
 function openSettings() {
   const s = S.settings;
   const sw = (k, l, d) => `<div class="setrow"><div class="grow"><div>${l}</div>${d ? `<div class="tiny muted">${d}</div>` : ''}</div><button class="sw ${s[k] ? 'on' : ''}" data-act="setToggle" data-arg="${k}" type="button" aria-pressed="${!!s[k]}"></button></div>`;
@@ -7333,7 +7434,9 @@ function openSettings() {
     ${sw('ocrAuto', '글자 판독 자동 확정', '13자리가 목록과 정확히 일치하고 매우 확실할 때만 자동 확정. 끄면 항상 사람이 선택')}
     ${sw('bigResult', '확인 결과를 화면 가운데 크게', '확인·중복·없는 번호·실패를 큰 글씨로 잠깐 보여 줌')}
     ${sw('bigDetail', '큰 창에 등기리스트 원본과 송장 번호 함께', '위에 등기리스트 그 줄(사진·번호·성명)을 작게, 아래에 송장에서 확인한 번호와 결과를 크게')}
-    <div class="setrow"><div class="grow">큰 창이 떠 있는 시간<div class="tiny muted">확인 결과 큰 창이 화면에 머무는 시간. 기본은 결과마다 알맞게(확인 2.4초·없는 번호/실패 2.8초)</div></div><select class="inp" id="set-bigsec" style="width:auto">${[[0, '기본'], [1, '1초'], [1.5, '1.5초'], [2, '2초'], [3, '3초'], [4, '4초'], [5, '5초'], [6, '6초'], [8, '8초'], [10, '10초']].map(([v, l]) => `<option value="${v}" ${+(s.bigSec || 0) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    <div class="setrow bsrow"><div class="grow">큰 창이 떠 있는 시간 <b class="bsv">${bigSecLabel(s.bigSec)}</b><div class="tiny muted">수령확인 큰 창이 화면에 머무는 시간 — 0.5초부터 10초까지 0.1초 단위. 기본은 결과마다 알맞게(확인 2.4초·없는 번호/실패 2.8초)</div>
+      <div class="bsctl"><button class="btn sm" data-act="bigSec" data-arg="-" type="button">－</button><input type="range" id="set-bigsec" min="0.5" max="10" step="0.1" value="${+s.bigSec > 0 ? +s.bigSec : 2.4}" oninput="var e=this.closest('.bsrow').querySelector('.bsv'); if(e) e.textContent=(+this.value).toFixed(1)+'초'"><button class="btn sm" data-act="bigSec" data-arg="+" type="button">＋</button></div>
+      <div class="bspre">${[['def', '기본'], [0.5, '0.5초'], [1, '1초'], [1.5, '1.5초'], [2, '2초'], [3, '3초'], [5, '5초']].map(([v, l]) => `<button class="chip ${(v === 'def' ? !(+s.bigSec > 0) : +s.bigSec === v) ? 'on' : ''}" data-act="bigSec" data-arg="${v}" type="button">${l}</button>`).join('')}</div></div></div>
     ${sw('bigAll', '다른 알림도 모두 크게', '등록·사전수령·타택배 저장·저장·취소·경고 등 모든 결과 알림을 큰 창으로')}
     ${sw('failVoice', '판독 실패 → 바로 음성 입력', '번호를 못 읽으면 음성 입력 창이 떠서 말로 바로 확인')}
     ${sw('extraLater', '목록에 없는 번호는 나중에 따로 확인', '촬영 중엔 묻지 않고 "없는 번호"로 저장 → [없는 번호 확인]에서 한꺼번에')}
@@ -8217,6 +8320,7 @@ const ACT = {
   quad: (id) => openQuad(id),
   viewer: (id) => openViewer(id),
   item: (id) => openItem(id),
+  bigSec(arg) { const cur = +S.settings.bigSec > 0 ? +S.settings.bigSec : 2.4; return setBigSec(arg === 'def' ? 0 : arg === '+' ? cur + 0.5 : arg === '-' ? Math.max(0.5, cur - 0.5) : +arg); },
   listMarks: (docId) => openListMarks(docId || null),
   itemMarks(id) { const it = S.items.find((x) => x.id === id); if (!it) return; closeSheet(); if (!SHEETS.some((x) => x.querySelector('.lm'))) openListMarks(it.docId, it.id); },
   scanrev: (id) => openScanReview(id),
@@ -8541,7 +8645,7 @@ document.addEventListener('change', async (e) => {
   if (t.id === 'set-rowtap') { S.settings.rowTap = t.value; await saveSettings(); if (S.tab === 'result') renderResultList(); return; }
   if (t.id === 'set-min') { S.settings.minDigits = +t.value; await saveSettings(); return; }
   if (t.id === 'set-same') { S.settings.sameIgnoreMs = +t.value; await saveSettings(); return; }
-  if (t.id === 'set-bigsec') { S.settings.bigSec = +t.value || 0; await saveSettings(); showBig('ok', '큰 창 시간 확인', S.settings.bigSec ? S.settings.bigSec + '초' : '기본', '이 창이 떠 있는 시간입니다', 2400); return; }
+  if (t.id === 'set-bigsec') { await setBigSec(+t.value); return; }
   if (t.id === 'set-vidle') { S.settings.voiceIdle = +t.value; await saveSettings(); return; }
   if (t.id === 'set-lens') { S.settings.lens = t.value.replace(/[^0-9,]/g, '') || '13'; applyLens(); await saveSettings(); recompute(); toast(`송장번호 자릿수: ${[E.cfg.N, ...E.cfg.alt].join(', ')}`, 'ok'); return; }
   if (t.id === 'set-theme') { S.settings.theme = t.value; await saveSettings(); applyTheme(); return; }
